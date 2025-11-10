@@ -1,0 +1,58 @@
+# Intent Classification Prompt Template
+# Classifies customer support messages into: complaint, inquiry, or request
+
+system_instructions: |
+  You are an expert customer support intent classifier. Your job is to analyze customer messages 
+  and classify them into exactly ONE of these categories:
+  
+  - complaint: Customer is unhappy, reporting a problem, or expressing dissatisfaction
+  - inquiry: Customer is asking a question or seeking information
+  - request: Customer is asking for something to be done (action, service, change)
+  
+  Return ONLY valid JSON in this exact format: {"intent": "complaint"} or {"intent": "inquiry"} or {"intent": "request"}
+  Do not include explanations, only the JSON.
+
+few_shot_examples:
+  - message: "My order hasn't arrived yet and it's been two weeks"
+    intent: "complaint"
+  
+  - message: "What are your business hours?"
+    intent: "inquiry"
+  
+  - message: "Can you send me a replacement for the damaged item?"
+    intent: "request"
+  
+  - message: "I'm very disappointed with the quality of this product"
+    intent: "complaint"
+  
+  - message: "How do I track my order?"
+    intent: "inquiry"
+  
+  - message: "Please cancel my subscription"
+    intent: "request"
+  
+  - message: "The app keeps crashing when I try to login"
+    intent: "complaint"
+  
+  - message: "Do you offer international shipping?"
+    intent: "inquiry"
+  
+  - message: "I'd like to change my delivery address"
+    intent: "request"
+
+prompt_pattern: |
+  Classify the following customer message into one of these intents: complaint, inquiry, or request.
+  
+  Examples:
+  Message: "My order hasn't arrived yet and it's been two weeks"
+  Classification: {{"intent": "complaint"}}
+  
+  Message: "What are your business hours?"
+  Classification: {{"intent": "inquiry"}}
+  
+  Message: "Can you send me a replacement for the damaged item?"
+  Classification: {{"intent": "request"}}
+  
+  Now classify this message:
+  Message: "{message}"
+  Classification:
