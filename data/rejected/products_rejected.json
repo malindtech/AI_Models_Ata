@@ -1,0 +1,16 @@
+[
+  {
+    "id": "prod_100",
+    "reason": "too_short",
+    "word_count": 15
+  },
+  {
+    "id": "prod_118",
+    "reason": "duplicate"
+  },
+  {
+    "id": "prod_143",
+    "reason": "too_short",
+    "word_count": 19
+  }
+]

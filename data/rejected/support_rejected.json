@@ -1,0 +1,131 @@
+[
+  {
+    "id": "support_007",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_014",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_018",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_028",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_035",
+    "reason": "too_short",
+    "word_count": 2
+  },
+  {
+    "id": "support_042",
+    "reason": "too_short",
+    "word_count": 3
+  },
+  {
+    "id": "support_050",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_081",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_088",
+    "reason": "too_short",
+    "word_count": 2
+  },
+  {
+    "id": "support_110",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_162",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_165",
+    "reason": "too_short",
+    "word_count": 3
+  },
+  {
+    "id": "support_166",
+    "reason": "too_short",
+    "word_count": 3
+  },
+  {
+    "id": "support_170",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_171",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_177",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_183",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_216",
+    "reason": "too_short",
+    "word_count": 2
+  },
+  {
+    "id": "support_220",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_222",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_239",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_244",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_259",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_261",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_282",
+    "reason": "too_short",
+    "word_count": 4
+  },
+  {
+    "id": "support_283",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_284",
+    "reason": "not_english"
+  },
+  {
+    "id": "support_288",
+    "reason": "too_short",
+    "word_count": 3
+  }
+]

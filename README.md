@@ -428,6 +428,257 @@ See [DAY2_IMPLEMENTATION_GUIDE.md](DAY2_IMPLEMENTATION_GUIDE.md) for detailed do
 
 ---
 
+## 📊 Day 5: Vector Database & RAG Integration
+
+**Status**: ✅ **COMPLETE** | **Test Results**: 5/5 passed (100%)
+
+### Overview
+Day 5 adds **Retrieval-Augmented Generation (RAG)** capabilities using ChromaDB as the vector database. Both agents now retrieve relevant historical examples before generating responses, significantly improving quality and consistency.
+
+### New Features
+
+#### 1. Vector Database Setup
+- **Database**: ChromaDB (persistent local storage)
+- **Embedding Model**: `all-MiniLM-L6-v2` (384 dimensions)
+- **Collections**: 5 (blogs, products, support, social, reviews)
+- **Total Documents**: **1,085 embedded samples**
+- **Storage**: `data/chroma_db/` (persistent)
+
+#### 2. Semantic Search Endpoint
+
+**`POST /v1/retrieve`** - Search vector database for relevant documents
+
+**Single Collection Search:**
+```json
+{
+  "query": "laptop with good battery life",
+  "collection": "products",
+  "top_k": 3
+}
+```
+
+**Cross-Collection Search:**
+```json
+{
+  "query": "customer refund policy",
+  "top_k": 5
+}
+```
+
+**Response:**
+```json
+{
+  "query": "laptop with good battery life",
+  "collection": "products",
+  "num_results": 3,
+  "latency_ms": 17.15,
+  "results": [
+    {
+      "id": "prod_027",
+      "text": "Disappointed\n\nI read the reviews...",
+      "metadata": {
+        "rating": "negative",
+        "word_count": 50
+      },
+      "distance": 0.6791,
+      "collection": "products"
+    }
+  ]
+}
+```
+
+**Performance:**
+- Single collection: **15-25ms**
+- Cross-collection: **90ms** (25 results across 5 collections)
+
+#### 3. RAG-Enhanced Agents
+
+**Content Generation Agent** (`/v1/generate/content`)
+- Retrieves top-3 relevant support examples
+- Injects context into prompts
+- Graceful degradation if retrieval fails
+
+**Reply Agent** (`/v1/generate/reply`)
+- Retrieves top-3 context-relevant examples
+- Intent-aware context filtering
+- Maintains validation pipeline
+
+### Quick Start
+
+#### 1. Initialize Vector Database
+```powershell
+# Install dependencies (includes ChromaDB)
+pip install -r requirements.txt
+
+# Embed all 1,085 documents (takes ~50 seconds)
+python scripts/initialize_vectordb.py
+```
+
+**Output:**
+```
+✓ Loaded 1085 entries from 5 datasets
+✓ ChromaDB initialized at: data/chroma_db
+✓ Embedded 243 blogs in 6.4s
+✓ Embedded 197 products in 3.6s
+✓ Embedded 272 support in 6.1s
+✓ Embedded 177 social in 0.7s
+✓ Embedded 196 reviews in 4.2s
+
+Total: 1,085 documents in 50.4 seconds
+```
+
+#### 2. Test Retrieval Endpoint
+```powershell
+# Run comprehensive test suite
+python scripts/test_rag_retrieval.py
+```
+
+**Expected:**
+```
+================================================================================
+  DAY 5: RAG RETRIEVAL VALIDATION
+================================================================================
+
+Test Results:
+  Total Tests: 5
+  Passed: 5
+  Failed: 0
+  Success Rate: 100.0%
+```
+
+#### 3. Use RAG-Enhanced Generation
+```powershell
+# Content generation with RAG
+curl -X POST http://localhost:8000/v1/generate/content \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content_type": "support_reply",
+    "topic": "customer wants refund for late delivery",
+    "tone": "empathetic"
+  }'
+```
+
+### API Examples
+
+#### Retrieve Similar Products
+```bash
+curl -X POST http://localhost:8000/v1/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "laptop reviews",
+    "collection": "products",
+    "top_k": 3
+  }'
+```
+
+#### Cross-Collection Search
+```bash
+curl -X POST http://localhost:8000/v1/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "customer support best practices",
+    "top_k": 5
+  }'
+```
+
+### Architecture
+
+```
+User Request → Intent Classification (if Reply Agent)
+     ↓
+Semantic Search (ChromaDB)
+     ↓
+Context Retrieval (top-K)
+     ↓
+Context Preparation (rag_utils)
+     ↓
+Prompt Enhancement (inject context)
+     ↓
+LLM Generation (Llama 3 with context)
+     ↓
+Response (JSON)
+```
+
+### Files Added
+
+**Core Modules:**
+- `backend/vector_store.py` - ChromaDB operations (331 lines)
+- `backend/rag_utils.py` - RAG helper functions (220 lines)
+
+**Scripts:**
+- `scripts/initialize_vectordb.py` - One-time data loading (360 lines)
+- `scripts/test_rag_retrieval.py` - Comprehensive test suite (180 lines)
+
+**Documentation:**
+- `DAY5_SUMMARY.md` - Complete implementation details
+
+### Data Collections
+
+| Collection | Documents | Avg Length | Purpose |
+|-----------|-----------|------------|---------|
+| **blogs** | 243 | 952 words | CNN blog articles |
+| **products** | 197 | 60 words | Amazon product reviews |
+| **support** | 272 | 120 words | Customer support tickets |
+| **social** | 177 | 15 words | Reddit comments |
+| **reviews** | 196 | 150 words | Yelp business reviews |
+
+### Health Check
+
+```bash
+curl http://localhost:8000/health
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "vector_db": true
+}
+```
+
+**`vector_db: true`** indicates ChromaDB is initialized and ready.
+
+### Performance Metrics
+
+- **Embedding Time**: 0.046s per document
+- **Single Collection Search**: 15-25ms
+- **Cross-Collection Search**: 90ms (all 5 collections)
+- **Storage Size**: ~50MB (persistent)
+- **Embedding Dimensions**: 384
+
+### Troubleshooting
+
+#### ChromaDB Not Initializing
+```powershell
+# Check if data directory exists
+Test-Path data/chroma_db
+
+# Reinitialize if needed
+python scripts/initialize_vectordb.py
+```
+
+#### Slow Retrieval
+- Normal for cross-collection search (90ms expected)
+- Single collection should be <25ms
+- Check disk I/O if slower
+
+#### Vector DB Unavailable
+- System gracefully degrades (agents work without RAG)
+- Check logs for ChromaDB initialization errors
+- Verify requirements installed: `pip install chromadb sentence-transformers`
+
+### Documentation
+
+See [DAY5_SUMMARY.md](DAY5_SUMMARY.md) for:
+- Complete implementation details
+- Architecture diagrams
+- Test results
+- Performance analysis
+- Dependency information
+- Troubleshooting guide
+
+---
+
 ## 📄 License
 
 MIT License - See LICENSE file for details
@@ -440,4 +691,13 @@ This is a learning project for building production AI pipelines. Contributions w
 
 ---
 
-**Status**: ✅ Day 1 & Day 2 Complete - Reply Agent with Intent Classification Operational
+**Project Status**: ✅ Days 1-5 Complete
+
+- ✅ **Day 1**: Customer Support Agent with support reply generation
+- ✅ **Day 2**: Reply Agent with intent classification (complaint/inquiry/request)
+- ✅ **Day 3**: Background task processing with Celery + Redis
+- ✅ **Day 4**: Data quality validation pipeline (1,085 high-quality samples)
+- ✅ **Day 5**: Vector Database & RAG Integration (ChromaDB + semantic search)
+
+**Next Milestone**: Day 6 - Production Model Integration (OpenAI GPT-4)
+

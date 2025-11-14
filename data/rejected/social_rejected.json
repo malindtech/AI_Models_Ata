@@ -1,0 +1,99 @@
+[
+  {
+    "id": "social_016",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_017",
+    "reason": "too_short",
+    "word_count": 2
+  },
+  {
+    "id": "social_021",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_028",
+    "reason": "too_short",
+    "word_count": 2
+  },
+  {
+    "id": "social_050",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_053",
+    "reason": "too_short",
+    "word_count": 2
+  },
+  {
+    "id": "social_058",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_060",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_062",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_064",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_065",
+    "reason": "too_short",
+    "word_count": 2
+  },
+  {
+    "id": "social_066",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_070",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_082",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_085",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_116",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_127",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_138",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_150",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_160",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_172",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_179",
+    "reason": "not_english"
+  },
+  {
+    "id": "social_197",
+    "reason": "too_short",
+    "word_count": 1
+  }
+]

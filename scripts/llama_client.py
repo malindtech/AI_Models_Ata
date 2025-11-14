@@ -8,10 +8,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+# Support both OLLAMA_BASE_URL (Docker) and OLLAMA_URL (local)
+OLLAMA_URL = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_URL", "http://localhost:11434")
 # Default to a commonly available model; can be overridden via .env
 # Note: Llama 3 3B is published under the tag "llama3.2:3b" (not "llama3:3b").
-MODEL_NAME = os.getenv("MODEL_NAME", "llama3:8b")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama3.2:1b")
 # Optional comma-separated fallback list, tried when the primary model isn't found
 FALLBACK_MODELS = [m.strip() for m in os.getenv("FALLBACK_MODELS", "llama3.2:3b,llama3:latest").split(",") if m.strip()]
 # Bump timeout for slower machines/network

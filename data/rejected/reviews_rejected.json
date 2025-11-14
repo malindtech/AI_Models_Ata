@@ -1,0 +1,22 @@
+[
+  {
+    "id": "review_018",
+    "reason": "too_short",
+    "word_count": 3
+  },
+  {
+    "id": "review_028",
+    "reason": "too_short",
+    "word_count": 1
+  },
+  {
+    "id": "review_082",
+    "reason": "too_short",
+    "word_count": 9
+  },
+  {
+    "id": "review_109",
+    "reason": "too_short",
+    "word_count": 9
+  }
+]

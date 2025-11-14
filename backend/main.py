@@ -7,18 +7,59 @@ import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi import Body
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional, List
 from dotenv import load_dotenv
 from loguru import logger
 from scripts.llama_client import query_llama, OllamaError
+
+# Day 3: Celery imports
+try:
+    from backend.celery_tasks import generate_reply_task
+    from celery.result import AsyncResult
+    from backend.celery_app import celery_app
+    CELERY_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Celery not available: {e}")
+    CELERY_AVAILABLE = False
+
+# Day 5: Vector DB imports
+try:
+    from backend.vector_store import (
+        initialize_chroma_client,
+        retrieve_similar,
+        retrieve_cross_collection,
+        create_or_get_collection
+    )
+    VECTOR_DB_AVAILABLE = True
+    CHROMA_CLIENT = None  # Initialize on startup
+except ImportError as e:
+    logger.warning(f"Vector DB not available: {e}")
+    VECTOR_DB_AVAILABLE = False
+    CHROMA_CLIENT = None
 
 load_dotenv()
 
 app = FastAPI(title="AI Content Project - Support Agent", version="0.1.0")
 
+# Day 5: Startup event to initialize vector database
+@app.on_event("startup")
+async def startup_event():
+    """Initialize ChromaDB on startup with graceful degradation"""
+    global CHROMA_CLIENT
+    if VECTOR_DB_AVAILABLE:
+        try:
+            CHROMA_CLIENT = initialize_chroma_client()
+            logger.info("✅ ChromaDB initialized successfully")
+        except Exception as e:
+            logger.error(f"⚠️ ChromaDB initialization failed: {e}")
+            logger.warning("Vector search features will be unavailable")
+            CHROMA_CLIENT = None
+    else:
+        logger.warning("Vector DB module not available - RAG features disabled")
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "vector_db": CHROMA_CLIENT is not None}
 
 @app.get("/ready")
 def readiness():
@@ -141,10 +182,31 @@ def extract_json(raw: str) -> dict:
 def generate_content(req: GenerateContentRequest = Body(...)):
     template = load_template(req.content_type)
     prompt = build_prompt(template, req.content_type, req.topic, req.tone)
+    
+    # Day 5: Add RAG context retrieval for enhanced generation
+    if VECTOR_DB_AVAILABLE and CHROMA_CLIENT is not None:
+        try:
+            # Retrieve relevant context from support collection
+            from backend.rag_utils import prepare_rag_context, inject_rag_context
+            results = retrieve_similar("support", req.topic, k=3, client=CHROMA_CLIENT)
+            
+            if results:
+                # Prepare and inject RAG context
+                context = prepare_rag_context(results, max_contexts=3)
+                prompt = inject_rag_context(prompt, context)
+                logger.info(f"✅ Injected {len(results)} RAG contexts into prompt")
+            else:
+                logger.debug("No relevant contexts found for RAG")
+        
+        except Exception as e:
+            logger.warning(f"RAG retrieval failed, continuing without context: {e}")
+            # Continue without RAG - graceful degradation
+    
     try:
         r = query_llama(prompt, max_tokens=512, temperature=0.4)
     except OllamaError as e:
         raise HTTPException(status_code=502, detail=f"Model error: {e}")
+    
     parsed = extract_json(r["response"]) or {}
     headline = parsed.get("headline") or "Untitled"
     body = parsed.get("body") or parsed.get("content") or r["response"]
@@ -155,6 +217,93 @@ def generate_content(req: GenerateContentRequest = Body(...)):
         body=body.strip(),
         latency_s=r["latency_s"],
     )
+
+# ==== Day 5: RAG Retrieval Endpoint ====
+
+class RetrieveRequest(BaseModel):
+    query: str = Field(..., description="Search query for semantic retrieval")
+    collection: Optional[str] = Field(None, description="Specific collection to search (blogs, products, support, social, reviews). If None, search all collections")
+    top_k: int = Field(5, ge=1, le=20, description="Number of results to return (1-20)")
+
+class RetrievedDocument(BaseModel):
+    id: str = Field(..., description="Document ID")
+    text: str = Field(..., description="Document text content")
+    metadata: dict = Field(default_factory=dict, description="Document metadata")
+    distance: float = Field(..., description="Cosine distance (lower is more similar)")
+    collection: str = Field(..., description="Source collection name")
+
+class RetrieveResponse(BaseModel):
+    query: str
+    collection: Optional[str]
+    num_results: int
+    results: List[RetrievedDocument]
+    latency_ms: float
+
+@app.post("/v1/retrieve", response_model=RetrieveResponse)
+def retrieve_documents(req: RetrieveRequest = Body(...)):
+    """
+    Semantic search endpoint for RAG context retrieval
+    
+    Searches the vector database for documents similar to the query.
+    Can search a specific collection or across all collections.
+    """
+    if not VECTOR_DB_AVAILABLE or CHROMA_CLIENT is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Vector database not available. Please check ChromaDB initialization."
+        )
+    
+    import time
+    start_time = time.time()
+    
+    try:
+        if req.collection:
+            # Search specific collection
+            results = retrieve_similar(req.collection, req.query, k=req.top_k, client=CHROMA_CLIENT)
+            
+            # Format results
+            documents = []
+            for result in results:
+                documents.append(RetrievedDocument(
+                    id=result['id'],
+                    text=result['text'],
+                    metadata=result.get('metadata', {}),
+                    distance=result['distance'],
+                    collection=req.collection
+                ))
+        else:
+            # Cross-collection search
+            results = retrieve_cross_collection(
+                req.query,
+                k=req.top_k,
+                client=CHROMA_CLIENT
+            )
+            
+            # Format results
+            documents = []
+            for result in results:
+                coll_name = result.get('metadata', {}).get('_collection', 'unknown')
+                documents.append(RetrievedDocument(
+                    id=result['id'],
+                    text=result['text'],
+                    metadata=result.get('metadata', {}),
+                    distance=result['distance'],
+                    collection=coll_name
+                ))
+        
+        latency_ms = (time.time() - start_time) * 1000
+        
+        return RetrieveResponse(
+            query=req.query,
+            collection=req.collection,
+            num_results=len(documents),
+            results=documents,
+            latency_ms=round(latency_ms, 2)
+        )
+        
+    except Exception as e:
+        logger.error(f"Retrieval error: {e}")
+        raise HTTPException(status_code=500, detail=f"Retrieval failed: {str(e)}")
 
 # ==== Day 2: Reply Agent & Intent Classifier ====
 
@@ -174,6 +323,19 @@ class GenerateReplyResponse(BaseModel):
     classification_latency_s: float
     generation_latency_s: float
     total_latency_s: float
+
+# Day 3: Background task response models
+class TaskSubmittedResponse(BaseModel):
+    task_id: str = Field(..., description="Unique task ID for tracking")
+    status: str = Field("pending", description="Initial status is always pending")
+    message: str = Field(..., description="The original message submitted")
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: Literal['pending', 'processing', 'success', 'failed'] = Field(..., description="Current task status")
+    result: Optional[dict] = Field(None, description="Task result if completed successfully")
+    error: Optional[str] = Field(None, description="Error message if task failed")
+    progress: Optional[dict] = Field(None, description="Progress information if available")
 
 def classify_intent(message: str) -> dict:
     """
@@ -258,13 +420,36 @@ def classify_intent_endpoint(req: GenerateReplyRequest = Body(...)):
         latency_s=result["latency_s"]
     )
 
-@app.post("/v1/generate/reply", response_model=GenerateReplyResponse)
-def generate_reply(req: GenerateReplyRequest = Body(...)):
+@app.post("/v1/generate/reply")
+def generate_reply(req: GenerateReplyRequest = Body(...), async_mode: bool = True):
     """
     Reply Agent Pipeline:
     1. Classify intent of the message
     2. Generate contextually appropriate reply based on intent
+    
+    Day 3 Update:
+    - Default: Submit as background Celery task (async_mode=True)
+    - Returns task_id for polling via /v1/tasks/{task_id}
+    - Fallback: Synchronous processing if Celery unavailable (async_mode=False)
     """
+    # Day 3: Background task mode (default)
+    if async_mode and CELERY_AVAILABLE:
+        logger.info(f"Submitting reply generation as background task for: {req.message[:50]}...")
+        
+        # Submit task to Celery
+        task = generate_reply_task.delay(req.message)
+        
+        logger.info(f"Task submitted with ID: {task.id}")
+        
+        return TaskSubmittedResponse(
+            task_id=task.id,
+            status="pending",
+            message=req.message
+        )
+    
+    # Fallback: Synchronous mode (Day 2 behavior)
+    logger.warning("Running in synchronous mode (Celery unavailable or async_mode=False)")
+    
     import time
     start_time = time.time()
     
@@ -288,3 +473,85 @@ def generate_reply(req: GenerateReplyRequest = Body(...)):
         generation_latency_s=generation_latency,
         total_latency_s=total_latency
     )
+
+
+@app.get("/v1/tasks/{task_id}", response_model=TaskStatusResponse)
+def get_task_status(task_id: str):
+    """
+    Get status and result of a background task
+    
+    Day 3: Task Status Endpoint
+    - Returns: pending, processing, success, or failed
+    - If success: includes full result with reply
+    - If failed: includes error message
+    """
+    if not CELERY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Background task system unavailable (Celery not configured)"
+        )
+    
+    # Get task result from Celery
+    task_result = AsyncResult(task_id, app=celery_app)
+    
+    # Check task state
+    if task_result.state == "PENDING":
+        # Task not started or doesn't exist
+        return TaskStatusResponse(
+            task_id=task_id,
+            status="pending",
+            progress={"message": "Task is queued and waiting to be processed"}
+        )
+    
+    elif task_result.state == "STARTED":
+        # Task is currently being processed
+        return TaskStatusResponse(
+            task_id=task_id,
+            status="processing",
+            progress={"message": "Task is currently being processed"}
+        )
+    
+    elif task_result.state == "SUCCESS":
+        # Task completed successfully
+        result_data = task_result.result
+        
+        # Check if validation failed
+        if result_data.get("status") == "validation_failed":
+            return TaskStatusResponse(
+                task_id=task_id,
+                status="failed",
+                error=result_data.get("error", "Content validation failed"),
+                result=result_data  # Include details of what failed
+            )
+        
+        # Successful with valid content
+        return TaskStatusResponse(
+            task_id=task_id,
+            status="success",
+            result=result_data
+        )
+    
+    elif task_result.state == "FAILURE":
+        # Task failed with exception
+        error_msg = str(task_result.info) if task_result.info else "Unknown error"
+        return TaskStatusResponse(
+            task_id=task_id,
+            status="failed",
+            error=error_msg
+        )
+    
+    elif task_result.state == "RETRY":
+        # Task is being retried
+        return TaskStatusResponse(
+            task_id=task_id,
+            status="processing",
+            progress={"message": "Task is being retried after an error"}
+        )
+    
+    else:
+        # Unknown state
+        return TaskStatusResponse(
+            task_id=task_id,
+            status="pending",
+            progress={"message": f"Task state: {task_result.state}"}
+        )
