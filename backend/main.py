@@ -81,9 +81,9 @@ def test_llama():
 # ==== Content Generation Models & Endpoint ====
 
 class GenerateContentRequest(BaseModel):
-    content_type: Literal['support_reply'] = Field('support_reply', description="Fixed: only 'support_reply' supported for customer support agent focus")
-    topic: str = Field(..., description="Customer issue or question to address")
-    tone: str = Field("neutral", description="Tone: neutral | empathetic | formal | friendly")
+    content_type: Literal['blog', 'product_description', 'ad_copy', 'email_newsletter', 'social_media', 'support_reply'] = Field(..., description="Type of content to generate")
+    topic: str = Field(..., description="Topic, product, or subject for content generation")
+    tone: str = Field("neutral", description="Tone: neutral | empathetic | formal | friendly | professional | casual")
 
 class GeneratedContent(BaseModel):
     headline: str
@@ -99,7 +99,11 @@ class GenerateContentResponse(BaseModel):
 PROMPTS_DIR = Path("prompts")
 
 TEMPLATE_MAP = {
-    # Only support replies currently in scope; others retained for future extension
+    "blog": PROMPTS_DIR / "blog_generator.yaml",
+    "product_description": PROMPTS_DIR / "product_description.yaml",
+    "ad_copy": PROMPTS_DIR / "ad_copy.yaml",
+    "email_newsletter": PROMPTS_DIR / "email_newsletter.yaml",
+    "social_media": PROMPTS_DIR / "social_media.yaml",
     "support_reply": PROMPTS_DIR / "support_reply.yaml",
 }
 
@@ -113,8 +117,17 @@ def load_template(content_type: str):
 def build_prompt(template: dict, content_type: str, topic: str, tone: str):
     system = template.get("system_instructions", "")
     pattern = template.get("prompt_pattern", "")
-    # Allow {tone} placeholder for support_reply
-    prompt = pattern.format(topic=topic, tone=tone)
+    
+    # Replace placeholders in prompt pattern
+    prompt = pattern.replace("{topic}", topic).replace("{tone}", tone)
+    
+    # For backward compatibility with format-style placeholders
+    try:
+        prompt = pattern.format(topic=topic, tone=tone)
+    except KeyError:
+        # If format fails, use replace (already done above)
+        pass
+    
     full = f"{system}\n\n{prompt}\n".strip()
     return full
 
@@ -186,17 +199,28 @@ def generate_content(req: GenerateContentRequest = Body(...)):
     # Day 5: Add RAG context retrieval for enhanced generation
     if VECTOR_DB_AVAILABLE and CHROMA_CLIENT is not None:
         try:
-            # Retrieve relevant context from support collection
             from backend.rag_utils import prepare_rag_context, inject_rag_context
-            results = retrieve_similar("support", req.topic, k=3, client=CHROMA_CLIENT)
+            
+            # Select appropriate collection based on content type
+            collection_map = {
+                "blog": "blogs",
+                "product_description": "products",
+                "ad_copy": "products",  # Use product examples for ad copy
+                "email_newsletter": "blogs",  # Use blog content for newsletters
+                "social_media": "social",
+                "support_reply": "support"
+            }
+            
+            collection = collection_map.get(req.content_type, "support")
+            results = retrieve_similar(collection, req.topic, k=3, client=CHROMA_CLIENT)
             
             if results:
                 # Prepare and inject RAG context
                 context = prepare_rag_context(results, max_contexts=3)
                 prompt = inject_rag_context(prompt, context)
-                logger.info(f"✅ Injected {len(results)} RAG contexts into prompt")
+                logger.info(f"✅ Injected {len(results)} RAG contexts from '{collection}' collection")
             else:
-                logger.debug("No relevant contexts found for RAG")
+                logger.debug(f"No relevant contexts found in '{collection}' collection")
         
         except Exception as e:
             logger.warning(f"RAG retrieval failed, continuing without context: {e}")
