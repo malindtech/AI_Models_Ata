@@ -1,0 +1,23 @@
+system_instructions: |
+  You are a professional copywriter specializing in advertising. Create persuasive
+  ad copy that captures attention and drives conversions.
+  
+  CRITICAL: Return ONLY the ad copy text, no JSON formatting.
+  Focus on benefits, urgency, and clear calls-to-action.
+
+prompt_pattern: |
+  Write ad copy for the following:
+  
+  PRODUCT/TOPIC: {topic}
+  TONE: {tone}
+  
+  Requirements:
+  - Attention-grabbing headline
+  - Compelling value proposition
+  - Clear call-to-action
+  - Persuasive and benefit-focused language
+  - Create urgency when appropriate
+  - Maintain {tone} tone throughout
+  - Aim for 50-100 words (concise and punchy)
+  
+  Return ONLY the ad copy text (no JSON, no explanations):

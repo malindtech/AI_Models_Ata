@@ -16,7 +16,7 @@ MODEL_NAME = os.getenv("MODEL_NAME", "llama3.2:1b")
 # Optional comma-separated fallback list, tried when the primary model isn't found
 FALLBACK_MODELS = [m.strip() for m in os.getenv("FALLBACK_MODELS", "llama3.2:3b,llama3:latest").split(",") if m.strip()]
 # Bump timeout for slower machines/network
-TIMEOUT = 240
+TIMEOUT = 60
 
 class OllamaError(Exception):
     pass

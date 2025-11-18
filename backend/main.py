@@ -361,13 +361,6 @@ class TaskStatusResponse(BaseModel):
     error: Optional[str] = Field(None, description="Error message if task failed")
     progress: Optional[dict] = Field(None, description="Progress information if available")
 
-# Day 6: Updated reply request with personalization and k-value parameters
-class GenerateReplyRequestV2(BaseModel):
-    message: str = Field(..., description="Customer support message")
-    customer_name: Optional[str] = Field(None, description="Customer name for personalization")
-    k: int = Field(5, ge=1, le=20, description="Number of RAG contexts to retrieve (1-20)")
-    max_validation_retries: int = Field(2, ge=0, le=5, description="Max validation retry attempts")
-
 def classify_intent(message: str) -> dict:
     """
     Classify customer message intent using few-shot prompting
@@ -451,147 +444,6 @@ def classify_intent_endpoint(req: GenerateReplyRequest = Body(...)):
         latency_s=result["latency_s"]
     )
 
-@app.post("/generate-reply-async")
-def generate_reply_async(req: GenerateReplyRequestV2 = Body(...)):
-    """
-    Day 6 Async Endpoint: Generate reply with RAG optimization and personalization
-    
-    Features:
-    - Query expansion for better retrieval
-    - Configurable top-k values (1-20)
-    - Customer name personalization
-    - Background processing with Celery
-    - Full validation and retry logic
-    
-    Parameters:
-    - message: Customer support message
-    - customer_name: Optional name for personalization
-    - k: Number of RAG contexts to retrieve (default: 5)
-    - max_validation_retries: Max retry attempts (default: 2)
-    
-    Returns:
-    - task_id: For polling status
-    """
-    if not CELERY_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Background task system unavailable"
-        )
-    
-    logger.info(f"Submitting reply with RAG optimization: message={req.message[:50]}..., customer_name={req.customer_name}, k={req.k}")
-    
-    # Day 6: Pass all parameters to celery task. Wrap submission to surface broker errors
-    try:
-        task = generate_reply_task.delay(
-            message=req.message,
-            max_validation_retries=req.max_validation_retries,
-            customer_name=req.customer_name,
-            k=req.k
-        )
-    except Exception as e:
-        logger.exception(f"Failed to submit Celery task: {e}")
-        logger.info("Attempting synchronous fallback (broker unavailable)")
-        # Synchronous fallback: classify + generate inline and return immediate result
-        try:
-            intent_result = classify_intent(req.message)
-            detected_intent = intent_result["intent"]
-            classification_latency = intent_result["latency_s"]
-
-            # Reuse generation logic from celery tasks which supports personalization and k
-            from backend.celery_tasks import generate_reply_from_intent as sync_generate
-
-            reply_result = sync_generate(
-                req.message,
-                detected_intent,
-                customer_name=req.customer_name,
-                k=req.k,
-            )
-
-            generation_latency = reply_result.get("latency_s", 0.0)
-            total_latency = classification_latency + generation_latency
-
-            return GenerateReplyResponse(
-                message=req.message,
-                detected_intent=detected_intent,
-                reply=reply_result.get("reply", ""),
-                next_steps=reply_result.get("next_steps", ""),
-                classification_latency_s=classification_latency,
-                generation_latency_s=generation_latency,
-                total_latency_s=total_latency,
-            )
-        except Exception as e2:
-            logger.exception(f"Synchronous fallback failed: {e2}")
-            raise HTTPException(status_code=503, detail=f"Failed to submit background task and synchronous fallback failed: {e2}")
-
-    logger.info(f"Task submitted with ID: {task.id}")
-
-    return TaskSubmittedResponse(
-        task_id=task.id,
-        status="pending",
-        message=req.message
-    )
-
-@app.get("/task-status/{task_id}")
-def get_task_status_endpoint(task_id: str):
-    """
-    Get status and result of a background task (Day 6 compatible)
-    
-    Returns:
-    - pending: Task is queued
-    - processing: Task is running
-    - success: Task completed successfully
-    - failed: Task failed
-    """
-    if not CELERY_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Background task system unavailable"
-        )
-    
-    task_result = AsyncResult(task_id, app=celery_app)
-    
-    if task_result.state == "PENDING":
-        return TaskStatusResponse(
-            task_id=task_id,
-            status="pending",
-            progress={"message": "Task is queued"}
-        )
-    elif task_result.state == "STARTED":
-        return TaskStatusResponse(
-            task_id=task_id,
-            status="processing",
-            progress={"message": "Task is running"}
-        )
-    elif task_result.state == "SUCCESS":
-        result_data = task_result.result
-        
-        if result_data.get("status") == "validation_failed":
-            return TaskStatusResponse(
-                task_id=task_id,
-                status="failed",
-                error=result_data.get("error", "Validation failed"),
-                result=result_data
-            )
-        
-        return TaskStatusResponse(
-            task_id=task_id,
-            status="success",
-            result=result_data
-        )
-    elif task_result.state == "FAILURE":
-        error_msg = str(task_result.info) if task_result.info else "Unknown error"
-        return TaskStatusResponse(
-            task_id=task_id,
-            status="failed",
-            error=error_msg
-        )
-    else:
-        return TaskStatusResponse(
-            task_id=task_id,
-            status="processing",
-            progress={"message": f"Task state: {task_result.state}"}
-        )
-
 @app.post("/v1/generate/reply")
 def generate_reply(req: GenerateReplyRequest = Body(...), async_mode: bool = True):
     """
@@ -607,42 +459,12 @@ def generate_reply(req: GenerateReplyRequest = Body(...), async_mode: bool = Tru
     # Day 3: Background task mode (default)
     if async_mode and CELERY_AVAILABLE:
         logger.info(f"Submitting reply generation as background task for: {req.message[:50]}...")
-
-        # Submit task to Celery; wrap to surface broker/connectivity errors as 503
-        try:
-            task = generate_reply_task.delay(req.message)
-        except Exception as e:
-            logger.exception(f"Failed to submit Celery task: {e}")
-            logger.info("Attempting synchronous fallback for background submit (broker unavailable)")
-            # Synchronous fallback (reuse classification and generation functions)
-            try:
-                intent_result = classify_intent(req.message)
-                detected_intent = intent_result["intent"]
-                classification_latency = intent_result["latency_s"]
-
-                # Reuse celery_tasks generation which supports personalization and k (defaults)
-                from backend.celery_tasks import generate_reply_from_intent as sync_generate
-
-                reply_result = sync_generate(req.message, detected_intent)
-
-                generation_latency = reply_result.get("latency_s", 0.0)
-                total_latency = classification_latency + generation_latency
-
-                return GenerateReplyResponse(
-                    message=req.message,
-                    detected_intent=detected_intent,
-                    reply=reply_result.get("reply", ""),
-                    next_steps=reply_result.get("next_steps", ""),
-                    classification_latency_s=classification_latency,
-                    generation_latency_s=generation_latency,
-                    total_latency_s=total_latency,
-                )
-            except Exception as e2:
-                logger.exception(f"Synchronous fallback failed: {e2}")
-                raise HTTPException(status_code=503, detail=f"Failed to submit background task and synchronous fallback failed: {e2}")
-
+        
+        # Submit task to Celery
+        task = generate_reply_task.delay(req.message)
+        
         logger.info(f"Task submitted with ID: {task.id}")
-
+        
         return TaskSubmittedResponse(
             task_id=task.id,
             status="pending",

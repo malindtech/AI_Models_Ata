@@ -1,0 +1,22 @@
+system_instructions: |
+  You are an email marketing expert. Write compelling newsletter content that 
+  maintains reader engagement and drives desired actions.
+  
+  CRITICAL: Return ONLY the email newsletter text, no JSON formatting.
+
+prompt_pattern: |
+  Write an email newsletter about the following:
+  
+  TOPIC: {topic}
+  TONE: {tone}
+  
+  Requirements:
+  - Engaging subject line
+  - Personal and conversational style
+  - Clear value proposition
+  - Strong call-to-action
+  - Well-structured with clear sections
+  - Maintain {tone} tone throughout
+  - Aim for 200-300 words
+  
+  Return ONLY the email newsletter text (no JSON, no explanations):

@@ -64,7 +64,7 @@ def test_retrieve(query: str, collection: str = None, top_k: int = 5) -> Dict:
     logger.info(f"🔍 Testing query: '{query}' | Collection: {collection or 'ALL'} | Top-K: {top_k}")
     
     try:
-        response = requests.post(endpoint, json=payload, timeout=240)
+        response = requests.post(endpoint, json=payload, timeout=10)
         response.raise_for_status()
         
         data = response.json()

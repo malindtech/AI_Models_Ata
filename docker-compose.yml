@@ -1,0 +1,115 @@
+# Docker Compose for AI Content Project
+# Orchestrates FastAPI backend, Redis, and Celery worker
+
+services:
+  # Redis - Message broker and result backend
+  redis:
+    image: redis:7.2-alpine
+    container_name: ai_content_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai_content_network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_content_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - MIN_CONTENT_LENGTH=10
+      - MAX_CONTENT_LENGTH=5000
+      - TOXICITY_THRESHOLD=0.7
+    volumes:
+      - ./backend:/app/backend
+      - ./scripts:/app/scripts
+      - ./prompts:/app/prompts
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ai_content_network
+    restart: unless-stopped
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker (Windows-compatible with solo pool)
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_content_celery_worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - MIN_CONTENT_LENGTH=10
+      - MAX_CONTENT_LENGTH=5000
+      - TOXICITY_THRESHOLD=0.7
+    volumes:
+      - ./backend:/app/backend
+      - ./scripts:/app/scripts
+      - ./prompts:/app/prompts
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - ai_content_network
+    restart: unless-stopped
+    command: celery -A backend.celery_app worker --loglevel=info --pool=solo
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A backend.celery_app inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Celery Flower (Optional monitoring UI)
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_content_flower
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+    volumes:
+      - ./backend:/app/backend
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ai_content_network
+    restart: unless-stopped
+    command: celery -A backend.celery_app flower --port=5555
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  ai_content_network:
+    driver: bridge

@@ -81,21 +81,12 @@ def classify_intent(message: str) -> dict:
     return {"intent": intent, "latency_s": r["latency_s"]}
 
 
-def generate_reply_from_intent(message: str, intent: str, customer_name: str = None, k: int = 3) -> dict:
+def generate_reply_from_intent(message: str, intent: str) -> dict:
     """
     Generate contextual reply based on message and detected intent
     
     Day 5: Enhanced with RAG context retrieval
-    Day 6: Enhanced with query expansion and personalization
-    
-    Args:
-        message: Customer message
-        intent: Detected intent (complaint, inquiry, request)
-        customer_name: Optional customer name for personalization
-        k: Number of top-k documents to retrieve (default: 3, can be 5-10 for more context)
-        
-    Returns: 
-        {"reply": str, "next_steps": str, "latency_s": float}
+    Returns: {"reply": str, "next_steps": str, "latency_s": float}
     """
     template_path = PROMPTS_DIR / "reply_generator.yaml"
     if not template_path.exists():
@@ -107,34 +98,22 @@ def generate_reply_from_intent(message: str, intent: str, customer_name: str = N
     
     prompt = f"{system}\n\n{pattern}".replace("{message}", message).replace("{intent}", intent).strip()
     
-    # Day 6: Enhanced RAG with query expansion and personalization
+    # Day 5: Add RAG context retrieval
     try:
-        from backend.vector_store import initialize_chroma_client
-        from backend.rag_utils import (
-            prepare_rag_context, 
-            inject_rag_context, 
-            retrieve_with_expanded_queries
-        )
+        from backend.vector_store import retrieve_similar, initialize_chroma_client
+        from backend.rag_utils import prepare_rag_context, inject_rag_context
         
         # Initialize ChromaDB client (cached after first call)
         client = initialize_chroma_client()
         
-        # Day 6: Use query expansion for better retrieval
-        results = retrieve_with_expanded_queries(
-            "support", 
-            message, 
-            client=client,
-            k=k,  # Use configurable k value
-            num_query_variations=2  # Try 2 query variations
-        )
+        # Retrieve relevant support examples based on the message
+        results = retrieve_similar("support", message, k=3, client=client)
         
         if results:
             # Prepare and inject RAG context
-            context = prepare_rag_context(results, max_contexts=k)
-            
-            # Day 6: Personalize prompt with customer name
-            prompt = inject_rag_context(prompt, context, customer_name=customer_name)
-            logger.info(f"✅ Injected {len(results)} RAG contexts with query expansion (intent: {intent})")
+            context = prepare_rag_context(results, max_contexts=3)
+            prompt = inject_rag_context(prompt, context)
+            logger.info(f"✅ Injected {len(results)} RAG contexts for reply generation (intent: {intent})")
         else:
             logger.debug("No relevant RAG contexts found")
     
@@ -165,12 +144,6 @@ def generate_reply_from_intent(message: str, intent: str, customer_name: str = N
         reply = response_text
         next_steps = ""
     
-    # Day 6: Personalize the final response
-    if customer_name:
-        from backend.rag_utils import personalize_response
-        reply = personalize_response(reply, customer_name=customer_name)
-        next_steps = personalize_response(next_steps, customer_name=customer_name)
-    
     logger.info(f"Reply generated for intent {intent}")
     return {"reply": reply, "next_steps": next_steps, "latency_s": r["latency_s"]}
 
@@ -186,35 +159,25 @@ def generate_reply_from_intent(message: str, intent: str, customer_name: str = N
     retry_backoff_max=60,  # Max 60 seconds backoff
     retry_jitter=True,
 )
-def generate_reply_task(
-    self, 
-    message: str, 
-    max_validation_retries: int = 2,
-    customer_name: str = None,
-    k: int = 3
-) -> dict:
+def generate_reply_task(self, message: str, max_validation_retries: int = 2) -> dict:
     """
     Background task: Generate reply with intent classification and validation
     
     Pipeline:
     1. Classify intent
-    2. Generate reply based on intent with RAG (query expansion)
+    2. Generate reply based on intent
     3. Validate reply (length, forbidden phrases, toxicity)
     4. If validation fails → Retry generation (up to max_validation_retries times)
-    5. Personalize with customer name if provided
-    6. Return result or rejection
+    5. Return result or rejection
     
     Args:
         message: Customer support message
         max_validation_retries: Max attempts to regenerate if validation fails (default: 2)
-        customer_name: Optional customer name for personalization (default: None)
-        k: Number of top-k RAG documents to retrieve (default: 3, can be 5-10)
         
     Returns:
         Dict with reply data or validation error
     """
     logger.info(f"Starting reply generation task for message: {message[:50]}...")
-    logger.info(f"Parameters: k={k}, customer_name={customer_name}")
     start_time = time.time()
     
     # Track all attempts for debugging
@@ -235,14 +198,7 @@ def generate_reply_task(
             validation_attempt += 1
             
             logger.info(f"Step 2: Generating reply for intent '{detected_intent}' (attempt {validation_attempt}/{max_attempts})...")
-            
-            # Day 6: Pass customer_name and k to reply generation
-            reply_result = generate_reply_from_intent(
-                message, 
-                detected_intent,
-                customer_name=customer_name,
-                k=k
-            )
+            reply_result = generate_reply_from_intent(message, detected_intent)
             reply_text = reply_result["reply"]
             next_steps = reply_result["next_steps"]
             generation_latency = reply_result["latency_s"]

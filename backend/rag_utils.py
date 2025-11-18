@@ -3,151 +3,17 @@
 RAG (Retrieval-Augmented Generation) Utilities
 
 Helper functions for integrating retrieved context into prompts:
-- Query expansion for better retrieval
 - Context formatting and truncation
-- Prompt injection with personalization
+- Prompt injection
 - Token estimation
 - Duplicate filtering
 """
 
 from typing import List, Dict, Any
-import re
 from loguru import logger
 
 
-def expand_query(query: str, num_variations: int = 3) -> List[str]:
-    """
-    Generate query variations for improved retrieval (query expansion)
-    
-    Strategies:
-    1. Original query
-    2. Generalized query (remove specific details)
-    3. Synonym/related terms query
-    4. Simplified/condensed query
-    
-    Args:
-        query: Original user query
-        num_variations: Number of variations to generate (including original)
-        
-    Returns:
-        List of query variations for retrieval
-        
-    Example:
-        >>> expand_query("My laptop won't turn on")
-        [
-            "My laptop won't turn on",  # Original
-            "laptop power issue",        # Generalized
-            "device won't start"         # Synonym variation
-        ]
-    """
-    variations = [query]  # Always include original
-    
-    if num_variations <= 1:
-        return variations
-    
-    # Strategy 1: Generalized (remove specific product names/brands)
-    generalized = query
-    # Remove brand names and specific products
-    generalized = re.sub(r'\b(iPhone|Samsung|Dell|HP|Apple|Microsoft|Windows|MacOS)\b', '', generalized, flags=re.IGNORECASE)
-    generalized = re.sub(r'\s+', ' ', generalized).strip()
-    if generalized and generalized != query and len(variations) < num_variations:
-        variations.append(generalized)
-    
-    # Strategy 2: Simplified (focus on main noun)
-    # Extract key problem/topic words
-    problem_keywords = {
-        "won't": "not working",
-        "can't": "unable",
-        "doesn't": "not functioning",
-        "broken": "damaged",
-        "crash": "error",
-        "freeze": "hang",
-        "slow": "performance issue",
-        "loud": "noise",
-        "hot": "temperature issue"
-    }
-    
-    simplified = query.lower()
-    for issue, replacement in problem_keywords.items():
-        simplified = simplified.replace(issue, replacement)
-    
-    simplified = simplified.strip()
-    if simplified and simplified != query.lower() and len(variations) < num_variations:
-        variations.append(simplified)
-    
-    # Strategy 3: Extract core question (if it's a question)
-    if '?' in query:
-        # For questions, focus on the main question
-        question_words = r'\b(what|how|why|when|where|who|which|can|could|would|should|is|are|has|have|does|do)\b'
-        core = re.sub(question_words, '', query, flags=re.IGNORECASE).strip()
-        core = re.sub(r'\s+', ' ', core).strip()
-        if core and len(variations) < num_variations:
-            variations.append(core)
-    
-    logger.debug(f"Generated {len(variations)} query variations from: {query}")
-    return variations[:num_variations]
-
-
-def retrieve_with_expanded_queries(
-    collection_name: str,
-    query: str,
-    client,
-    k: int = 5,
-    num_query_variations: int = 2
-) -> List[Dict[str, Any]]:
-    """
-    Retrieve documents using expanded queries and deduplicate results
-    
-    This function:
-    1. Expands the query into multiple variations
-    2. Retrieves from each variation
-    3. Deduplicates and ranks by relevance
-    4. Returns top-k results
-    
-    Args:
-        collection_name: ChromaDB collection to search
-        query: Original user query
-        client: ChromaDB client
-        k: Number of top results to return
-        num_query_variations: Number of query variations to try (1-3)
-        
-    Returns:
-        List of deduplicated retrieved documents, ranked by relevance
-    """
-    from backend.vector_store import retrieve_similar
-    
-    # Generate query variations
-    query_variations = expand_query(query, num_query_variations)
-    logger.info(f"Searching with {len(query_variations)} query variations")
-    
-    # Collect results from all variations
-    all_results = []
-    seen_ids = set()
-    
-    for variation in query_variations:
-        try:
-            results = retrieve_similar(collection_name, variation, k=k, client=client)
-            
-            # Track unique documents (by ID)
-            for doc in results:
-                doc_id = doc.get('id', '')
-                if doc_id not in seen_ids:
-                    all_results.append(doc)
-                    seen_ids.add(doc_id)
-                    
-            logger.debug(f"Retrieved {len(results)} results for variation: {variation}")
-        except Exception as e:
-            logger.warning(f"Retrieval failed for variation '{variation}': {e}")
-            continue
-    
-    # Sort by distance (relevance) and return top-k
-    ranked_results = sorted(all_results, key=lambda x: x.get('distance', 1.0))[:k]
-    logger.info(f"Query expansion: {len(query_variations)} variations -> {len(ranked_results)} unique results")
-    
-    return ranked_results
-
-
-
+def calculate_token_estimate(text: str) -> int:
     """
     Rough token estimation: 1 token ≈ 4 characters
     
@@ -227,19 +93,18 @@ def format_retrieved_context(
     return context
 
 
-def inject_rag_context(base_prompt: str, context: str, customer_name: str = None) -> str:
+def inject_rag_context(base_prompt: str, context: str) -> str:
     """
-    Inject retrieved context into base prompt with optional personalization
+    Inject retrieved context into base prompt
     
     Strategy: Add context section after system instructions but before user query
     
     Args:
         base_prompt: Original prompt template
         context: Formatted retrieved context
-        customer_name: Optional customer name for personalization
         
     Returns:
-        Enhanced prompt with context and personalization
+        Enhanced prompt with context
         
     Template:
         {system_instructions}
@@ -248,9 +113,6 @@ def inject_rag_context(base_prompt: str, context: str, customer_name: str = None
         {context}
         
         {user_query}
-        
-    Personalization:
-        If customer_name is provided, replaces {customer_name} placeholders
     """
     if not context or not context.strip():
         return base_prompt
@@ -268,11 +130,6 @@ def inject_rag_context(base_prompt: str, context: str, customer_name: str = None
     else:
         # Single block - add context at beginning
         enhanced_prompt = context_section + base_prompt
-    
-    # Add personalization if customer name provided
-    if customer_name:
-        enhanced_prompt = enhanced_prompt.replace("{customer_name}", customer_name)
-        logger.debug(f"Personalized prompt with customer name: {customer_name}")
     
     logger.debug(f"Injected context ({len(context)} chars) into prompt")
     return enhanced_prompt
@@ -393,46 +250,3 @@ def prepare_rag_context(
     logger.info(f"Prepared RAG context: {len(filtered)} docs -> {calculate_token_estimate(context)} tokens")
     
     return context
-
-
-def personalize_response(response: str, customer_name: str = None, customer_id: str = None) -> str:
-    """
-    Add personalization to generated response
-    
-    Replaces placeholders:
-    - {customer_name}: Customer's name
-    - {customer_id}: Customer's unique ID
-    - {first_name}: First name extracted from customer_name
-    
-    Args:
-        response: Original generated response
-        customer_name: Full customer name or None
-        customer_id: Customer ID or None
-        
-    Returns:
-        Personalized response with placeholders replaced
-        
-    Example:
-        >>> personalize_response(
-        ...     "Hi {customer_name}, thank you for contacting us!",
-        ...     customer_name="John Smith"
-        ... )
-        "Hi John Smith, thank you for contacting us!"
-    """
-    personalized = response
-    
-    if customer_name:
-        personalized = personalized.replace("{customer_name}", customer_name)
-        
-        # Extract first name
-        first_name = customer_name.split()[0] if customer_name else ""
-        personalized = personalized.replace("{first_name}", first_name)
-        
-        logger.debug(f"Personalized response with customer name: {customer_name}")
-    
-    if customer_id:
-        personalized = personalized.replace("{customer_id}", str(customer_id))
-        logger.debug(f"Personalized response with customer ID: {customer_id}")
-    
-    return personalized
-

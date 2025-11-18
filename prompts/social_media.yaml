@@ -1,0 +1,22 @@
+system_instructions: |
+  You are a social media expert. Create engaging, platform-optimized social media posts
+  that drive engagement and action.
+  
+  CRITICAL: Return ONLY the social media post text, no JSON formatting.
+  Include relevant hashtags naturally within the post.
+
+prompt_pattern: |
+  Create a social media post about the following:
+  
+  TOPIC: {topic}
+  TONE: {tone}
+  
+  Requirements:
+  - Engaging and shareable content
+  - Natural inclusion of 3-5 relevant hashtags
+  - Clear call-to-action or engagement hook
+  - Maintain {tone} tone throughout
+  - Aim for 100-150 words (platform-appropriate length)
+  - Make it punchy and attention-grabbing
+  
+  Return ONLY the social media post text (no JSON, no explanations):

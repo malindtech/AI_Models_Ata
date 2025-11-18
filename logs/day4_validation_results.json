@@ -1,0 +1,68 @@
+{
+  "blogs": {
+    "count": 243,
+    "median_word_count": 582,
+    "avg_paragraphs": 22.29,
+    "min_word_count": 205,
+    "max_word_count": 1585,
+    "avg_word_count": 585.4,
+    "meets_word_count_criterion": true,
+    "meets_paragraphs_criterion": true,
+    "pass": true,
+    "details": "\u2713 PASS"
+  },
+  "products": {
+    "count": 197,
+    "titles_preserved": 197,
+    "title_preservation_rate": 1.0,
+    "title_preservation_percent": "100.0%",
+    "meets_criterion": true,
+    "pass": true,
+    "details": "\u2713 PASS"
+  },
+  "support": {
+    "count": 272,
+    "with_agent_reply": 272,
+    "agent_reply_rate": 1.0,
+    "agent_reply_percent": "100.0%",
+    "meets_criterion": true,
+    "pass": true,
+    "details": "\u2713 PASS"
+  },
+  "social": {
+    "count": 177,
+    "short_posts": 148,
+    "medium_posts": 29,
+    "long_posts": 0,
+    "short_percent": "83.6%",
+    "medium_percent": "16.4%",
+    "long_percent": "0.0%",
+    "has_mixture": true,
+    "pass": true,
+    "details": "\u2713 PASS"
+  },
+  "quality": {
+    "noise_rates": {
+      "blogs": 0.028,
+      "products": 0.015,
+      "support": 0.09333333333333334
+    },
+    "noise_criterion_pass": true,
+    "language_purities": {
+      "blogs": 1.0,
+      "products": 1.0,
+      "support": 1.0,
+      "reviews": 1.0
+    },
+    "language_criterion_pass": true,
+    "duplicate_ratios": {
+      "blogs": 0.0,
+      "products": 0.0,
+      "support": 0.0,
+      "social": 0.0,
+      "reviews": 0.0
+    },
+    "duplicate_criterion_pass": true
+  },
+  "overall_pass": true
+}
