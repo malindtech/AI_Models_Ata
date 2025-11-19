@@ -7,9 +7,14 @@ Helper functions for integrating retrieved context into prompts:
 - Prompt injection
 - Token estimation
 - Duplicate filtering
+
+Day 6 Enhancements:
+- Query expansion integration
+- Personalization support
+- Enhanced retrieval with re-ranking
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from loguru import logger
 
 
@@ -250,3 +255,237 @@ def prepare_rag_context(
     logger.info(f"Prepared RAG context: {len(filtered)} docs -> {calculate_token_estimate(context)} tokens")
     
     return context
+
+
+# ============================================================================
+# DAY 6: ENHANCED RAG FUNCTIONS
+# ============================================================================
+
+def retrieve_with_query_expansion(
+    collection_name: str,
+    query: str,
+    k: int = 5,
+    enable_expansion: bool = True,
+    max_expansions: int = 3
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve documents with optional query expansion
+    
+    Day 6 Enhancement: Expands query to improve recall
+    
+    Args:
+        collection_name: Collection to search
+        query: Original query
+        k: Number of results to return
+        enable_expansion: Whether to use query expansion
+        max_expansions: Maximum number of expanded queries
+    
+    Returns:
+        List of retrieved documents (deduplicated)
+    """
+    try:
+        from backend.vector_store import retrieve_similar
+        from backend.query_expansion import get_query_expander
+    except ImportError as e:
+        logger.error(f"Failed to import dependencies: {e}")
+        return []
+    
+    if not enable_expansion:
+        # Standard retrieval without expansion
+        return retrieve_similar(collection_name, query, k)
+    
+    # Expand query
+    expander = get_query_expander()
+    expanded_queries = expander.expand_query(
+        query,
+        max_expansions=max_expansions,
+        include_synonyms=True,
+        include_related=True
+    )
+    
+    logger.debug(f"Query expanded into {len(expanded_queries)} variants")
+    
+    # Retrieve with each expanded query
+    all_results = []
+    seen_ids = set()
+    
+    for exp_query in expanded_queries:
+        try:
+            results = retrieve_similar(collection_name, exp_query, k=k)
+            
+            # Deduplicate by ID
+            for doc in results:
+                doc_id = doc.get('id')
+                if doc_id not in seen_ids:
+                    seen_ids.add(doc_id)
+                    all_results.append(doc)
+        except Exception as e:
+            logger.warning(f"Retrieval failed for expanded query '{exp_query}': {e}")
+            continue
+    
+    # Sort by distance (best first) and limit to k * 2
+    all_results.sort(key=lambda x: x.get('distance', 1.0))
+    limited_results = all_results[:k * 2]
+    
+    logger.info(f"Query expansion retrieved {len(limited_results)} unique documents from {len(expanded_queries)} queries")
+    
+    return limited_results
+
+
+def prepare_rag_context_enhanced(
+    documents: List[Dict[str, Any]],
+    max_tokens: int = 1500,
+    max_contexts: int = 5,
+    distance_threshold: float = 0.7,
+    filter_duplicates: bool = True,
+    personalization_context: Optional[Dict[str, str]] = None
+) -> str:
+    """
+    Enhanced RAG context preparation with Day 6 improvements
+    
+    Day 6 Enhancements:
+    - Query expansion integration (via retrieve_with_query_expansion)
+    - Personalization token support
+    - Improved relevance filtering
+    
+    Args:
+        documents: Retrieved documents
+        max_tokens: Maximum tokens for context
+        max_contexts: Maximum number of contexts
+        distance_threshold: Relevance threshold
+        filter_duplicates: Whether to filter duplicate contexts
+        personalization_context: Optional context for personalization
+    
+    Returns:
+        Formatted, filtered, personalized context string
+    """
+    if not documents:
+        return ""
+    
+    # Step 1: Truncate by relevance
+    filtered = truncate_context_by_relevance(documents, max_contexts, distance_threshold)
+    
+    # Step 2: Remove duplicates
+    if filter_duplicates:
+        filtered = filter_duplicate_contexts(filtered)
+    
+    # Step 3: Format with token limit
+    context = format_retrieved_context(filtered, max_tokens)
+    
+    # Step 4: Personalize if context provided (Day 6)
+    if personalization_context and context:
+        try:
+            from backend.personalization import personalize_content
+            context = personalize_content(context, personalization_context, strict=False)
+            logger.debug("Applied personalization to RAG context")
+        except ImportError:
+            logger.warning("Personalization module not available")
+        except Exception as e:
+            logger.error(f"Personalization failed: {e}")
+    
+    logger.info(f"Prepared enhanced RAG context: {len(filtered)} docs -> {calculate_token_estimate(context)} tokens")
+    
+    return context
+
+
+def inject_rag_context_with_personalization(
+    base_prompt: str,
+    context: str,
+    personalization_context: Optional[Dict[str, str]] = None
+) -> str:
+    """
+    Inject RAG context and apply personalization to full prompt
+    
+    Day 6 Enhancement: Personalizes both context and prompt
+    
+    Args:
+        base_prompt: Original prompt template
+        context: Retrieved context
+        personalization_context: Optional personalization values
+    
+    Returns:
+        Enhanced and personalized prompt
+    """
+    # First inject context
+    enhanced_prompt = inject_rag_context(base_prompt, context)
+    
+    # Then personalize entire prompt if context provided
+    if personalization_context:
+        try:
+            from backend.personalization import personalize_content
+            enhanced_prompt = personalize_content(enhanced_prompt, personalization_context, strict=False)
+            logger.debug("Applied personalization to full prompt")
+        except ImportError:
+            logger.warning("Personalization module not available")
+        except Exception as e:
+            logger.error(f"Prompt personalization failed: {e}")
+    
+    return enhanced_prompt
+
+
+def hybrid_retrieve_and_rank(
+    collection_name: str,
+    query: str,
+    k: int = 5,
+    enable_expansion: bool = True,
+    rerank_by_keywords: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Hybrid retrieval with semantic search + keyword re-ranking
+    
+    Day 6 Enhancement: Combines semantic and lexical matching
+    
+    Args:
+        collection_name: Collection to search
+        query: Search query
+        k: Number of results
+        enable_expansion: Use query expansion
+        rerank_by_keywords: Apply keyword-based re-ranking
+    
+    Returns:
+        Retrieved and re-ranked documents
+    """
+    # Retrieve with optional expansion
+    results = retrieve_with_query_expansion(
+        collection_name,
+        query,
+        k=k * 2,  # Get more results for re-ranking
+        enable_expansion=enable_expansion
+    )
+    
+    if not rerank_by_keywords or not results:
+        return results[:k]
+    
+    # Extract query keywords for re-ranking
+    try:
+        from backend.query_expansion import extract_keywords_from_query
+        query_keywords = extract_keywords_from_query(query)
+    except ImportError:
+        logger.warning("Query expansion module not available for re-ranking")
+        return results[:k]
+    
+    if not query_keywords:
+        return results[:k]
+    
+    # Re-rank by keyword overlap
+    for doc in results:
+        text_lower = doc.get('text', '').lower()
+        keyword_score = sum(1 for kw in query_keywords if kw.lower() in text_lower)
+        keyword_score_normalized = keyword_score / len(query_keywords) if query_keywords else 0
+        
+        # Combine semantic distance with keyword score
+        # Lower distance is better (more similar)
+        # Higher keyword score is better
+        original_distance = doc.get('distance', 1.0)
+        
+        # Hybrid score: 70% semantic, 30% keyword
+        hybrid_score = (original_distance * 0.7) + ((1 - keyword_score_normalized) * 0.3)
+        doc['hybrid_score'] = hybrid_score
+        doc['keyword_score'] = keyword_score_normalized
+    
+    # Sort by hybrid score (lower is better)
+    results.sort(key=lambda x: x.get('hybrid_score', x.get('distance', 1.0)))
+    
+    logger.debug(f"Re-ranked {len(results)} results by hybrid score")
+    
+    return results[:k]

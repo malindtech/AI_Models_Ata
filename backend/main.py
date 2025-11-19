@@ -41,6 +41,21 @@ except ImportError as e:
     VECTOR_DB_AVAILABLE = False
     CHROMA_CLIENT = None
 
+# Day 6: Query Expansion & Personalization imports
+try:
+    from backend.query_expansion import get_query_expander
+    from backend.personalization import get_global_personalizer
+    from backend.rag_utils import (
+        retrieve_with_query_expansion,
+        prepare_rag_context_enhanced,
+        hybrid_retrieve_and_rank
+    )
+    DAY6_AVAILABLE = True
+    logger.info("✅ Day 6 features available: Query Expansion & Personalization")
+except ImportError as e:
+    logger.warning(f"Day 6 features not available: {e}")
+    DAY6_AVAILABLE = False
+
 # Production: Validator imports
 from backend.validators import validate_support_reply
 
@@ -497,7 +512,8 @@ def get_statistics():
         },
         "system": {
             "vector_db_available": CHROMA_CLIENT is not None,
-            "celery_available": CELERY_AVAILABLE
+            "celery_available": CELERY_AVAILABLE,
+            "day6_features_available": DAY6_AVAILABLE
         }
     }
 
@@ -516,6 +532,8 @@ class GenerateContentRequest(BaseModel):
     content_type: Literal['blog', 'product_description', 'ad_copy', 'email_newsletter', 'social_media', 'support_reply'] = Field(..., description="Type of content to generate")
     topic: str = Field(..., description="Topic, product, or subject for content generation")
     tone: str = Field("neutral", description="Tone: neutral | empathetic | formal | friendly | professional | casual")
+    personalization_context: Optional[dict] = Field(None, description="Day 6: Personalization tokens (e.g., {'customer_name': 'John', 'order_number': 'ABC-123'})")
+    enable_expansion: bool = Field(True, description="Day 6: Enable query expansion for RAG retrieval (default: True for improved recall)")
 
 class GeneratedContent(BaseModel):
     headline: str
@@ -670,10 +688,10 @@ def generate_content(req: GenerateContentRequest = Body(...)):
     template = load_template(req.content_type)
     prompt = build_prompt(template, req.content_type, req.topic, req.tone)
     
-    # Day 5: Add RAG context retrieval for enhanced generation
+    # Day 5 + Day 6: Add RAG context retrieval with optional query expansion and personalization
     if VECTOR_DB_AVAILABLE and CHROMA_CLIENT is not None:
         try:
-            from backend.rag_utils import prepare_rag_context, inject_rag_context
+            from backend.rag_utils import inject_rag_context
             
             # Select appropriate collection based on content type
             collection_map = {
@@ -686,11 +704,34 @@ def generate_content(req: GenerateContentRequest = Body(...)):
             }
             
             collection = collection_map.get(req.content_type, "support")
-            results = retrieve_similar(collection, req.topic, k=3, client=CHROMA_CLIENT)
+            
+            # Day 6: Use query expansion if enabled and available
+            if req.enable_expansion and DAY6_AVAILABLE:
+                logger.info(f"Using Day 6 query expansion for RAG retrieval: {req.topic[:50]}...")
+                results = retrieve_with_query_expansion(
+                    collection,
+                    req.topic,
+                    k=3,
+                    enable_expansion=True
+                )
+            else:
+                # Standard retrieval (Day 5 behavior)
+                results = retrieve_similar(collection, req.topic, k=3, client=CHROMA_CLIENT)
             
             if results:
-                # Prepare and inject RAG context
-                context = prepare_rag_context(results, max_contexts=3)
+                # Day 6: Use enhanced context preparation with personalization
+                if DAY6_AVAILABLE and req.personalization_context:
+                    logger.info(f"Applying Day 6 personalization with context: {list(req.personalization_context.keys())}")
+                    context = prepare_rag_context_enhanced(
+                        results,
+                        max_contexts=3,
+                        personalization_context=req.personalization_context
+                    )
+                else:
+                    # Standard context preparation (Day 5 behavior)
+                    from backend.rag_utils import prepare_rag_context
+                    context = prepare_rag_context(results, max_contexts=3)
+                
                 prompt = inject_rag_context(prompt, context)
                 logger.info(f"✅ Injected {len(results)} RAG contexts from '{collection}' collection")
             else:
@@ -805,6 +846,8 @@ class RetrieveRequest(BaseModel):
     query: str = Field(..., description="Search query for semantic retrieval")
     collection: Optional[str] = Field(None, description="Specific collection to search (blogs, products, support, social, reviews). If None, search all collections")
     top_k: int = Field(5, ge=1, le=20, description="Number of results to return (1-20)")
+    enable_expansion: bool = Field(False, description="Day 6: Enable query expansion for improved recall (adds synonyms and related terms)")
+    enable_hybrid: bool = Field(False, description="Day 6: Enable hybrid retrieval (semantic + keyword re-ranking)")
 
 class RetrievedDocument(BaseModel):
     id: str = Field(..., description="Document ID")
@@ -838,8 +881,44 @@ def retrieve_documents(req: RetrieveRequest = Body(...)):
     start_time = time.time()
     
     try:
-        if req.collection:
-            # Search specific collection
+        # Day 6: Choose retrieval strategy based on flags
+        if req.enable_hybrid and DAY6_AVAILABLE and req.collection:
+            # Hybrid retrieval (semantic + keyword re-ranking)
+            logger.info(f"Using Day 6 hybrid retrieval for: {req.query[:50]}...")
+            results = hybrid_retrieve_and_rank(
+                req.collection,
+                req.query,
+                k=req.top_k
+            )
+            documents = [
+                RetrievedDocument(
+                    id=result['id'],
+                    text=result['text'],
+                    metadata=result.get('metadata', {}),
+                    distance=result['distance'],
+                    collection=req.collection
+                ) for result in results
+            ]
+        elif req.enable_expansion and DAY6_AVAILABLE and req.collection:
+            # Query expansion retrieval
+            logger.info(f"Using Day 6 query expansion for: {req.query[:50]}...")
+            results = retrieve_with_query_expansion(
+                req.collection,
+                req.query,
+                k=req.top_k,
+                enable_expansion=True
+            )
+            documents = [
+                RetrievedDocument(
+                    id=result['id'],
+                    text=result['text'],
+                    metadata=result.get('metadata', {}),
+                    distance=result['distance'],
+                    collection=req.collection
+                ) for result in results
+            ]
+        elif req.collection:
+            # Standard retrieval (Day 5 behavior)
             results = retrieve_similar(req.collection, req.query, k=req.top_k, client=CHROMA_CLIENT)
             
             # Format results
