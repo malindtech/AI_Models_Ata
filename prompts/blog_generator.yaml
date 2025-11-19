@@ -41,29 +41,33 @@ style_guidelines:
     audience: "Students, learners, beginners"
 
 output_format: |
-  You MUST return ONLY valid JSON with these exact fields:
+  You MUST return ONLY valid JSON with these exact fields (NO markdown, NO code blocks, NO backticks):
   {
-    "title": "Compelling blog post title here",
-    "introduction": "Engaging opening paragraph that hooks the reader...",
-    "body": "Well-structured main content with multiple paragraphs...",
-    "conclusion": "Strong closing paragraph that summarizes key points...",
-    "tags": ["relevant", "tags", "here"]
+    "title": "Write the blog title here",
+    "introduction": "Write 2-3 sentences introducing the topic here",
+    "body": "Write 3-5 paragraphs of actual blog content here. Include detailed information, examples, and insights.",
+    "conclusion": "Write a concluding paragraph summarizing key points here",
+    "tags": ["tag1", "tag2", "tag3"]
   }
+  
+  CRITICAL: The "body" field must contain actual paragraphs of text, NOT just metadata. Write a complete blog post.
 
 prompt_pattern: |
-  Generate a {length} blog post with these specifications:
+  Generate a {length} blog post about: {topic}
   
-  TOPIC: {topic}
+  INSTRUCTIONS:
+  1. Write a compelling title (50-70 characters)
+  2. Write an engaging introduction (2-3 sentences that hook the reader)
+  3. Write the main body content (3-5 paragraphs with valuable information, examples, and insights)
+  4. Write a conclusion paragraph (summarize key takeaways)
+  5. Add 3-5 relevant tags
+  
   WRITING STYLE: {style}
   TARGET AUDIENCE: {audience}
   
-  Requirements:
-  - Title: Compelling and SEO-friendly
-  - Introduction: Engaging hook (2-3 sentences)
-  - Body: Well-structured content appropriate for {length} length
-  - Conclusion: Memorable ending with key takeaways
-  - Tags: 3-5 relevant tags for categorization
+  IMPORTANT: Return ONLY a JSON object (no markdown, no code blocks, no extra text).
   
-  Remember to adapt the tone and content for {style} style and {audience} audience.
+  Return this exact format:
+  {{"title": "your title here", "introduction": "your intro here", "body": "your body paragraphs here", "conclusion": "your conclusion here", "tags": ["tag1", "tag2", "tag3"]}}
   
   Return ONLY valid JSON (no other text):

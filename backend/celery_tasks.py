@@ -81,11 +81,18 @@ def classify_intent(message: str) -> dict:
     return {"intent": intent, "latency_s": r["latency_s"]}
 
 
-def generate_reply_from_intent(message: str, intent: str) -> dict:
+def generate_reply_from_intent(message: str, intent: str, conversation_history: list = None) -> dict:
     """
     Generate contextual reply based on message and detected intent
     
     Day 5: Enhanced with RAG context retrieval
+    Day 6: Enhanced with multi-turn conversation support
+    
+    Args:
+        message: Current customer message
+        intent: Detected intent (complaint/inquiry/request)
+        conversation_history: Optional list of previous conversation turns
+    
     Returns: {"reply": str, "next_steps": str, "latency_s": float}
     """
     template_path = PROMPTS_DIR / "reply_generator.yaml"
@@ -96,7 +103,38 @@ def generate_reply_from_intent(message: str, intent: str) -> dict:
     system = template.get("system_instructions", "")
     pattern = template.get("prompt_pattern", "")
     
-    prompt = f"{system}\n\n{pattern}".replace("{message}", message).replace("{intent}", intent).strip()
+    # Build prompt with conversation history if provided
+    if conversation_history and len(conversation_history) > 0:
+        # Format conversation history (last 5 turns for context)
+        history_text = "\n".join([
+            f"{turn['role'].title()}: {turn['message']}"
+            for turn in conversation_history[-5:]  # Last 5 turns only
+        ])
+        
+        # Enhanced prompt with conversation context
+        prompt = f"""{system}
+
+[Previous Conversation]
+{history_text}
+
+[Current Message]
+Customer: {message}
+Intent: {intent}
+
+Generate a reply that:
+1. References the conversation history when relevant
+2. Maintains continuity with previous exchanges
+3. Addresses the current message in context of the conversation
+4. Is {intent}-appropriate (empathetic for complaints, informative for inquiries, action-oriented for requests)
+
+Respond in JSON format: {{"reply": "your response", "next_steps": "suggested actions"}}
+""".strip()
+        
+        logger.info(f"Using multi-turn mode with {len(conversation_history)} previous turns")
+    else:
+        # Single-turn prompt (original behavior)
+        prompt = f"{system}\n\n{pattern}".replace("{message}", message).replace("{intent}", intent).strip()
+        logger.debug("Using single-turn mode (no conversation history)")
     
     # Day 5: Add RAG context retrieval
     try:
@@ -159,13 +197,13 @@ def generate_reply_from_intent(message: str, intent: str) -> dict:
     retry_backoff_max=60,  # Max 60 seconds backoff
     retry_jitter=True,
 )
-def generate_reply_task(self, message: str, max_validation_retries: int = 2) -> dict:
+def generate_reply_task(self, message: str, max_validation_retries: int = 2, conversation_history: list = None) -> dict:
     """
     Background task: Generate reply with intent classification and validation
     
     Pipeline:
     1. Classify intent
-    2. Generate reply based on intent
+    2. Generate reply based on intent (with conversation history if provided)
     3. Validate reply (length, forbidden phrases, toxicity)
     4. If validation fails → Retry generation (up to max_validation_retries times)
     5. Return result or rejection
@@ -173,6 +211,7 @@ def generate_reply_task(self, message: str, max_validation_retries: int = 2) -> 
     Args:
         message: Customer support message
         max_validation_retries: Max attempts to regenerate if validation fails (default: 2)
+        conversation_history: Optional list of previous conversation turns for multi-turn support
         
     Returns:
         Dict with reply data or validation error
@@ -198,7 +237,7 @@ def generate_reply_task(self, message: str, max_validation_retries: int = 2) -> 
             validation_attempt += 1
             
             logger.info(f"Step 2: Generating reply for intent '{detected_intent}' (attempt {validation_attempt}/{max_attempts})...")
-            reply_result = generate_reply_from_intent(message, detected_intent)
+            reply_result = generate_reply_from_intent(message, detected_intent, conversation_history)
             reply_text = reply_result["reply"]
             next_steps = reply_result["next_steps"]
             generation_latency = reply_result["latency_s"]

@@ -12,11 +12,12 @@ load_dotenv()
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_URL", "http://localhost:11434")
 # Default to a commonly available model; can be overridden via .env
 # Note: Llama 3 3B is published under the tag "llama3.2:3b" (not "llama3:3b").
-MODEL_NAME = os.getenv("MODEL_NAME", "llama3.2:1b")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama3.2:3b")
 # Optional comma-separated fallback list, tried when the primary model isn't found
-FALLBACK_MODELS = [m.strip() for m in os.getenv("FALLBACK_MODELS", "llama3.2:3b,llama3:latest").split(",") if m.strip()]
-# Bump timeout for slower machines/network
-TIMEOUT = 60
+FALLBACK_MODELS = [m.strip() for m in os.getenv("FALLBACK_MODELS", "llama3.2:1b,llama3:latest").split(",") if m.strip()]
+# Timeout for LLM requests - increased for larger models like llama3:8b
+# Can be configured via OLLAMA_TIMEOUT env variable
+TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))
 
 class OllamaError(Exception):
     pass
@@ -58,6 +59,11 @@ def query_llama(prompt: str, max_tokens: int = 128, temperature: float = 0.3, mo
                     logger.warning("Model '%s' not found, trying next fallback...", model_name)
                     last_error = RuntimeError(f"Model not found: {model_name}")
                     continue
+                
+                # Log response details for 500 errors before raising
+                if r.status_code >= 500:
+                    logger.error(f"Ollama 500 error for model '{model_name}': {r.text[:500]}")
+                
                 r.raise_for_status()
                 data = r.json()
                 latency = time.time() - start
@@ -70,7 +76,7 @@ def query_llama(prompt: str, max_tokens: int = 128, temperature: float = 0.3, mo
                 return {"response": response, "latency_s": latency, "raw": data, "model": model_name}
             except Exception as e:
                 last_error = e
-                logger.exception("Ollama request failed for model=%s", model_name)
+                logger.exception(f"Ollama request failed for model='{model_name}': {str(e)}")
                 # Try next model if available
                 continue
 

@@ -92,11 +92,32 @@ def get_embedding_function():
         return _embedding_function
     
     try:
-        _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
-        )
-        logger.info("Loaded embedding model: all-MiniLM-L6-v2")
-        return _embedding_function
+        # Try ChromaDB's built-in function first
+        try:
+            _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+            logger.info("Loaded embedding model: all-MiniLM-L6-v2 (ChromaDB)")
+            return _embedding_function
+        except Exception as chroma_error:
+            logger.warning(f"ChromaDB embedding function failed: {chroma_error}, trying direct import")
+            
+            # Fallback: Direct sentence-transformers import
+            from sentence_transformers import SentenceTransformer
+            import chromadb.utils.embedding_functions as ef
+            
+            # Create custom embedding function
+            class DirectSentenceTransformerEF(ef.EmbeddingFunction):
+                def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+                    self.model = SentenceTransformer(model_name)
+                    
+                def __call__(self, texts):
+                    embeddings = self.model.encode(texts, convert_to_numpy=True)
+                    return embeddings.tolist()
+            
+            _embedding_function = DirectSentenceTransformerEF()
+            logger.info("Loaded embedding model: all-MiniLM-L6-v2 (direct)")
+            return _embedding_function
         
     except Exception as e:
         logger.error(f"Failed to load embedding function: {e}")

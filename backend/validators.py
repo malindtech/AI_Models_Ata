@@ -202,6 +202,116 @@ def validate_content(text: str) -> Dict:
     }
 
 
+def validate_support_reply(reply: str, intent: str, message: str, 
+                          conversation_history: List[dict] = None) -> Dict:
+    """
+    Production-level validation for customer support replies
+    
+    Args:
+        reply: Generated support reply
+        intent: Detected intent (complaint/inquiry/request)
+        message: Original customer message
+        conversation_history: Previous conversation turns
+    
+    Returns:
+        {
+            "is_valid": bool,
+            "quality_score": float (0-1),
+            "issues": List[str],
+            "suggestions": List[str]
+        }
+    """
+    issues = []
+    suggestions = []
+    score = 1.0
+    
+    # Check 1: Minimum length
+    if len(reply) < 50:
+        issues.append("Reply too short (less than 50 characters)")
+        score -= 0.3
+    
+    # Check 2: Generic phrases without action
+    generic_phrases = [
+        "i understand your concern",
+        "we apologize for any inconvenience",
+        "thank you for contacting us",
+        "we value your feedback"
+    ]
+    if any(phrase in reply.lower() for phrase in generic_phrases) and len(reply) < 150:
+        issues.append("Reply uses generic phrases without specific actions")
+        score -= 0.2
+        suggestions.append("Be more specific about what action you'll take")
+    
+    # Check 3: For complaints/requests - must ask for order info if not provided
+    needs_order_info = intent in ["complaint", "request"]
+    has_order_in_message = any(keyword in message.lower() for keyword in 
+                               ['order #', 'order number', '#', 'confirmation', 'tracking'])
+    
+    # Check conversation history for order info
+    has_order_in_history = False
+    if conversation_history:
+        history_text = " ".join([turn.get('message', '') for turn in conversation_history])
+        has_order_in_history = any(keyword in history_text.lower() for keyword in 
+                                   ['order #', 'order number', '#', 'confirmation'])
+    
+    if needs_order_info and not has_order_in_message and not has_order_in_history:
+        asks_for_order = any(ask_phrase in reply.lower() for ask_phrase in 
+                            ['order number', 'order #', 'provide your order', 
+                             'could you provide', 'can you share', 'please provide',
+                             'what is your order', 'which order'])
+        
+        if not asks_for_order:
+            issues.append(f"Reply doesn't ask for order number (required for {intent})")
+            score -= 0.4
+            suggestions.append("Add: 'To help you with this, could you please provide your order number?'")
+    
+    # Check 4: Avoid saying "as discussed" without context
+    if "as we discussed" in reply.lower() or "as mentioned" in reply.lower():
+        if not conversation_history or len(conversation_history) == 0:
+            issues.append("Reply references previous discussion but no conversation history exists")
+            score -= 0.3
+            suggestions.append("Remove phrases like 'as we discussed' when no prior context exists")
+    
+    # Check 5: Must contain specific action
+    action_indicators = ['will', 'can', 'i\'ll', 'let me', 'i am', 'i\'m checking', 
+                        'i\'m processing', 'i\'ve', 'within', 'by', 'please provide',
+                        'you can', 'to help']
+    has_action = any(indicator in reply.lower() for indicator in action_indicators)
+    
+    if not has_action:
+        issues.append("Reply lacks specific action or next step")
+        score -= 0.25
+        suggestions.append("Add what you'll do or what customer should do next")
+    
+    # Check 6: For complaints - must have empathy
+    if intent == "complaint":
+        empathy_words = ['sorry', 'apologize', 'understand', 'frustrating', 'inconvenience']
+        has_empathy = any(word in reply.lower() for word in empathy_words)
+        
+        if not has_empathy:
+            issues.append("Complaint response lacks empathy/acknowledgment")
+            score -= 0.2
+            suggestions.append("Acknowledge the customer's frustration and apologize")
+    
+    # Check 7: Length check - too long
+    if len(reply) > 500:
+        issues.append("Reply very long (over 500 characters) - may overwhelm customer")
+        score -= 0.1
+        suggestions.append("Consider making response more concise")
+    
+    # Ensure score stays in bounds
+    score = max(0.0, min(1.0, score))
+    
+    logger.info(f"Support reply validation: score={score:.2f}, issues={len(issues)}")
+    
+    return {
+        "is_valid": len(issues) == 0 or score >= 0.6,
+        "quality_score": score,
+        "issues": issues,
+        "suggestions": suggestions
+    }
+
+
 if __name__ == "__main__":
     # Quick test
     print("Testing validators...")
@@ -233,3 +343,31 @@ if __name__ == "__main__":
         print("❌ Toxic content should fail but passed")
     except ValidationError as e:
         print("✅ Toxic content rejected:", e.reason)
+    
+    # Test 5: Support reply validation
+    print("\n--- Support Reply Validation Tests ---")
+    
+    # Good reply
+    result = validate_support_reply(
+        reply="I'm sorry your order hasn't arrived yet. To help track it down, could you please provide your order number?",
+        intent="complaint",
+        message="My package never arrived!"
+    )
+    print(f"✅ Good reply: score={result['quality_score']:.2f}, valid={result['is_valid']}")
+    
+    # Bad reply - generic
+    result = validate_support_reply(
+        reply="We apologize for any inconvenience.",
+        intent="complaint",
+        message="My package never arrived!"
+    )
+    print(f"❌ Generic reply: score={result['quality_score']:.2f}, issues={result['issues']}")
+    
+    # Bad reply - no order number ask
+    result = validate_support_reply(
+        reply="I'll check on that for you right away.",
+        intent="complaint",
+        message="My package never arrived!"
+    )
+    print(f"❌ Missing order ask: score={result['quality_score']:.2f}, issues={result['issues']}")
+
