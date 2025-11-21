@@ -12,10 +12,28 @@ Day 6 Enhancements:
 - Query expansion integration
 - Personalization support
 - Enhanced retrieval with re-ranking
+
+Day 8 Enhancements:
+- Semantic similarity-based hallucination detection
+- Embedding-based content verification
 """
 
 from typing import List, Dict, Any, Optional
 from loguru import logger
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Lazy load embedding model to avoid startup overhead
+_embedding_model = None
+
+def get_embedding_model():
+    """Lazy-load sentence transformer model for semantic similarity"""
+    global _embedding_model
+    if _embedding_model is None:
+        from sentence_transformers import SentenceTransformer
+        _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("Loaded sentence transformer model for semantic similarity")
+    return _embedding_model
 
 
 def calculate_token_estimate(text: str) -> int:
@@ -489,3 +507,125 @@ def hybrid_retrieve_and_rank(
     logger.debug(f"Re-ranked {len(results)} results by hybrid score")
     
     return results[:k]
+
+
+def detect_hallucination(generated_text: str, retrieved_docs: List[Dict]) -> Dict[str, Any]:
+    """
+    Day 8 Enhanced: Detect potential hallucinations using semantic similarity + word overlap
+    
+    Combines two methods:
+    1. Word overlap (fast, strict)
+    2. Semantic similarity via embeddings (accurate, catches paraphrasing)
+    
+    Args:
+        generated_text: The AI-generated content to verify
+        retrieved_docs: List of documents retrieved from RAG (with 'text' field)
+        
+    Returns:
+        {
+            "has_hallucination_risk": bool,
+            "unsupported_claims": List[str],
+            "support_score": float (0-1),
+            "total_sentences": int,
+            "supported_sentences": int | float
+        }
+    """
+    if not retrieved_docs:
+        logger.warning("No RAG context available for hallucination detection")
+        return {
+            "has_hallucination_risk": True,
+            "unsupported_claims": ["No RAG context available"],
+            "support_score": 0.0,
+            "total_sentences": 0,
+            "supported_sentences": 0
+        }
+    
+    # Simple sentence splitting (naive approach - production would use nltk)
+    sentences = [s.strip() for s in generated_text.split('.') if s.strip() and len(s.strip()) > 10]
+    
+    if not sentences:
+        return {
+            "has_hallucination_risk": False,
+            "unsupported_claims": [],
+            "support_score": 1.0,
+            "total_sentences": 0,
+            "supported_sentences": 0
+        }
+    
+    # Combine all retrieved text for comparison
+    rag_context = " ".join([doc.get('text', '') for doc in retrieved_docs])
+    rag_context_lower = rag_context.lower()
+    
+    # Get embedding model for semantic similarity
+    try:
+        model = get_embedding_model()
+        
+        # Encode sentences and RAG context
+        sentence_embeddings = model.encode(sentences, show_progress_bar=False)
+        rag_embedding = model.encode([rag_context], show_progress_bar=False)[0]
+        
+        use_semantic = True
+        logger.debug("Using semantic similarity for hallucination detection")
+    except Exception as e:
+        logger.warning(f"Failed to load embedding model, falling back to word overlap: {e}")
+        use_semantic = False
+    
+    unsupported = []
+    supported_count = 0.0
+    
+    for i, sentence in enumerate(sentences):
+        # Method 1: Word overlap (fast baseline)
+        words = [
+            word.lower() for word in sentence.split() 
+            if len(word) >= 3 and word.lower() not in {'this', 'that', 'with', 'from', 'have', 'been', 'were'}
+        ]
+        
+        if not words:
+            supported_count += 1.0  # Empty sentence, don't penalize
+            continue
+        
+        word_matches = sum(1 for word in words if word in rag_context_lower)
+        word_overlap = word_matches / len(words) if words else 0.0
+        
+        # Method 2: Semantic similarity (if available)
+        if use_semantic:
+            similarity = cosine_similarity([sentence_embeddings[i]], [rag_embedding])[0][0]
+            
+            # Combined scoring: 40% word overlap + 60% semantic similarity
+            combined_score = (word_overlap * 0.4) + (similarity * 0.6)
+            
+            if combined_score >= 0.45:  # High confidence threshold
+                supported_count += 1.0
+            elif combined_score >= 0.30:  # Partial support
+                supported_count += 0.6
+            elif combined_score >= 0.20:  # Weak support
+                supported_count += 0.3
+                unsupported.append(sentence[:100])
+            else:
+                unsupported.append(sentence[:100])
+            
+            logger.debug(f"Sentence semantic={similarity:.2f}, word={word_overlap:.2f}, combined={combined_score:.2f}")
+        else:
+            # Fallback to word overlap only
+            if word_overlap >= 0.30:
+                supported_count += 1.0
+            elif word_overlap >= 0.20:
+                supported_count += 0.5
+                unsupported.append(sentence[:100])
+            else:
+                unsupported.append(sentence[:100])
+    
+    support_score = supported_count / len(sentences) if sentences else 0.0
+    
+    # Flag as high risk if support score is below 0.5
+    has_risk = support_score < 0.5
+    
+    logger.info(f"Hallucination check: {supported_count:.1f}/{len(sentences)} sentences supported (score: {support_score:.2f}, method: {'semantic+word' if use_semantic else 'word-only'})")
+    
+    return {
+        "has_hallucination_risk": has_risk,
+        "unsupported_claims": unsupported[:3],  # Return max 3 examples
+        "support_score": support_score,
+        "total_sentences": len(sentences),
+        "supported_sentences": supported_count
+    }

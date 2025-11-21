@@ -1,0 +1,2 @@
+timestamp,session_id,message,intent,reply,is_valid,quality_score,issues,latency_s
+2025-11-20T17:08:39.102345,test_support_1,Where is my order?,order_status,Your order is being processed and will ship soon...,True,0.8,,1.5

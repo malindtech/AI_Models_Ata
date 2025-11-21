@@ -60,18 +60,6 @@ style_guidelines:
     audience: Developers, engineers, technical experts
     characteristics: Includes technical details, specifications, deep analysis
     tone: Precise, detailed, expert-level
-system: '
-
-
-  REQUIREMENTS:
-
-  - Write at least 300 words
-
-  - Include both headline and body
-
-  - Ensure content is complete and well-structured
-
-  '
 system_instructions: "You are an expert blog writer and content creator. Generate\
   \ engaging, well-structured blog posts \nthat provide real value to readers.\n\n\
   CRITICAL: You MUST return ONLY valid JSON with the exact structure specified below.\n\

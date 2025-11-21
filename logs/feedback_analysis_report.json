@@ -1,0 +1,118 @@
+{
+  "report_metadata": {
+    "generated_at": "2025-11-20T17:12:04.955117",
+    "content_feedback_entries": 4,
+    "support_feedback_entries": 1,
+    "analysis_version": "1.0.0"
+  },
+  "content_generation_agent": {
+    "metrics": {
+      "total_reviews": 4,
+      "approved": 2,
+      "rejected": 1,
+      "edited": 0,
+      "approval_rate": 0.5,
+      "rejection_rate": 0.25,
+      "by_content_type": {
+        "blog": {
+          "total": 4,
+          "approved": 2,
+          "rejected": 1,
+          "edited": 0,
+          "approval_rate": 0.5
+        }
+      },
+      "latency_stats": {
+        "mean": 6.878217922846477,
+        "median": 1.23,
+        "p95": 16.480188391685484,
+        "min": 1.23,
+        "max": 18.17465376853943
+      },
+      "analysis_timestamp": "2025-11-20T17:12:04.948844"
+    },
+    "failure_patterns": [
+      {
+        "pattern_type": "validation_failures",
+        "description": "Common validation issues in rejected content",
+        "top_issues": [
+          {
+            "issue": "Content too short (0 chars, min 20); Missing body",
+            "count": 1
+          }
+        ],
+        "total_affected": 1
+      },
+      {
+        "pattern_type": "content_type_failures",
+        "description": "Rejection/edit counts by content type",
+        "breakdown": [
+          {
+            "content_type": "blog",
+            "count": 1
+          }
+        ],
+        "total_types": 1
+      }
+    ],
+    "successful_examples": [
+      {
+        "content_type": "blog",
+        "topic": "Test topic for CSV logging",
+        "tone": "professional",
+        "headline": "Test Headline",
+        "body_preview": "Test body content for CSV logging validation.",
+        "latency_s": 1.23
+      },
+      {
+        "content_type": "blog",
+        "topic": "Test topic for CSV logging",
+        "tone": "professional",
+        "headline": "Test Headline",
+        "body_preview": "Test body content for CSV logging validation.",
+        "latency_s": 1.23
+      }
+    ]
+  },
+  "customer_support_agent": {
+    "metrics": {
+      "total_replies": 1,
+      "valid_count": 1,
+      "validation_rate": 1.0,
+      "quality_stats": {
+        "mean": 0.8,
+        "median": 0.8,
+        "min": 0.8,
+        "max": 0.8,
+        "std": NaN
+      },
+      "by_intent": {
+        "order_status": {
+          "total": 1,
+          "valid_count": 1,
+          "validation_rate": 1.0,
+          "avg_quality_score": 0.8
+        }
+      },
+      "latency_stats": {
+        "mean": 1.5,
+        "median": 1.5,
+        "p95": 1.5
+      },
+      "analysis_timestamp": "2025-11-20T17:12:04.951104"
+    },
+    "failure_patterns": [],
+    "successful_examples": []
+  },
+  "improvement_suggestions": {
+    "all_content_templates": [
+      "Address validation issue: Content too short (0 chars, min 20); Missing body (occurred 1 times)"
+    ]
+  },
+  "summary": {
+    "content_approval_rate": 0.5,
+    "support_validation_rate": 1.0,
+    "total_patterns_identified": 2,
+    "total_suggestions": 1
+  }
+}

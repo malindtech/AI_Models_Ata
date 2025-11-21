@@ -261,7 +261,7 @@ def generate_content_api(content_type: str, topic: str, tone: str) -> Optional[D
         return None
 
 
-def retrieve_context_api(query: str, collection: Optional[str] = None, top_k: int = 3) -> Optional[Dict]:
+def retrieve_context_api(query: str, collection: Optional[str] = None, top_k: int = 8) -> Optional[Dict]:
     """Call backend API to retrieve RAG context"""
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
@@ -270,7 +270,9 @@ def retrieve_context_api(query: str, collection: Optional[str] = None, top_k: in
                 json={
                     "query": query,
                     "collection": collection,
-                    "top_k": top_k
+                    "top_k": top_k,
+                    "enable_expansion": True,  # Day 6: Enable query expansion for better recall
+                    "enable_hybrid": True      # Day 6: Enable hybrid retrieval for accuracy
                 }
             )
             response.raise_for_status()
@@ -593,7 +595,7 @@ def main():
                 # Retrieve context if enabled
                 if enable_rag:
                     with st.spinner("📚 Retrieving relevant context..."):
-                        context_result = retrieve_context_api(topic, collection=None, top_k=3)
+                        context_result = retrieve_context_api(topic, collection=None, top_k=8)
                         if context_result:
                             st.session_state['current_task']['retrieved_context'] = context_result
                 
@@ -637,6 +639,56 @@ def main():
         
         # Generated Output
         st.markdown('<div class="section-header">🤖 Generated Output</div>', unsafe_allow_html=True)
+        
+        # Day 8: Display confidence score and quality metrics
+        confidence_score = task.get('raw_response', {}).get('confidence_score', 1.0)
+        hallucination_risk = task.get('raw_response', {}).get('hallucination_risk', 'unknown')
+        quality_metrics = task.get('raw_response', {}).get('quality_metrics', {})
+        
+        # Confidence badge with color coding
+        if confidence_score >= 0.8:
+            confidence_badge = f'<div class="status-box status-success">✅ <strong>HIGH CONFIDENCE</strong>: {confidence_score:.2f}</div>'
+        elif confidence_score >= 0.7:
+            confidence_badge = f'<div class="status-box status-warning">⚠️ <strong>MEDIUM CONFIDENCE</strong>: {confidence_score:.2f} - Enhanced review needed</div>'
+        elif confidence_score >= 0.5:
+            confidence_badge = f'<div class="status-box status-warning">🟡 <strong>LOW CONFIDENCE</strong>: {confidence_score:.2f} - Senior approval required</div>'
+        else:
+            confidence_badge = f'<div class="status-box status-error">🔴 <strong>VERY LOW CONFIDENCE</strong>: {confidence_score:.2f} - BLOCK PUBLICATION</div>'
+        
+        st.markdown(confidence_badge, unsafe_allow_html=True)
+        
+        # Hallucination risk indicator
+        if hallucination_risk == 'high':
+            st.error(f"🚨 **HIGH HALLUCINATION RISK** - Unsupported claims detected. Support score: {quality_metrics.get('hallucination_support_score', 0):.2f}")
+        elif hallucination_risk == 'medium':
+            st.warning(f"⚠️ **MEDIUM HALLUCINATION RISK** - Some claims may be unsupported. Support score: {quality_metrics.get('hallucination_support_score', 0):.2f}")
+        else:
+            st.success(f"✅ **LOW HALLUCINATION RISK** - Content well-grounded. Support score: {quality_metrics.get('hallucination_support_score', 1.0):.2f}")
+        
+        # Quality metrics expander
+        if quality_metrics:
+            with st.expander("📊 Detailed Quality Metrics", expanded=(confidence_score < 0.7)):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.metric("Confidence Score", f"{confidence_score:.2f}")
+                    st.metric("Hallucination Risk", hallucination_risk.upper())
+                    st.metric("Support Score", f"{quality_metrics.get('hallucination_support_score', 0):.2f}")
+                    st.metric("Body Length", quality_metrics.get('body_length', 0))
+                
+                with col2:
+                    st.metric("Supported Sentences", 
+                             f"{quality_metrics.get('supported_sentences', 0)}/{quality_metrics.get('total_sentences', 0)}")
+                    st.metric("Headline Length", quality_metrics.get('headline_length', 0))
+                    st.metric("RAG Documents Used", quality_metrics.get('rag_documents_used', 0))
+                
+                # Show unsupported claims if any
+                unsupported_claims = quality_metrics.get('unsupported_claims_sample', [])
+                if unsupported_claims:
+                    st.warning("⚠️ **Unsupported Claims Detected:**")
+                    for i, claim in enumerate(unsupported_claims, 1):
+                        st.write(f"{i}. {claim}")
+                    st.caption("These claims may not be grounded in the RAG context. Verify before publishing.")
         
         # Validation check
         validation = ValidationRules.validate_all(task['headline'], task['body'])

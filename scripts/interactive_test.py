@@ -51,11 +51,37 @@ def test_content_generation():
     print(f"{Colors.BOLD}{Colors.BLUE}🤖 CONTENT GENERATION AGENT{Colors.END}")
     print(f"{Colors.BOLD}{Colors.BLUE}{'='*80}{Colors.END}\n")
     
-    print(f"{Colors.YELLOW}This agent generates customer support content with RAG context.{Colors.END}")
-    print(f"{Colors.YELLOW}Examples: 'refund for late delivery', 'password reset help', 'order tracking'\n{Colors.END}")
+    print(f"{Colors.YELLOW}This agent generates diverse content types with RAG context.{Colors.END}")
+    
+    # Select content type
+    print(f"\n{Colors.CYAN}Select Content Type:{Colors.END}")
+    print("  1. Blog Post")
+    print("  2. Product Description")
+    print("  3. Ad Copy")
+    print("  4. Email Newsletter")
+    print("  5. Social Media Post")
+    print("  6. Customer Support Reply")
+    
+    type_choice = input(f"{Colors.BOLD}Choose (1-6):{Colors.END} ").strip()
+    type_map = {
+        "1": ("blog", "Blog Post", "AI in healthcare", "blogs"),
+        "2": ("product_description", "Product Description", "wireless headphones", "products"),
+        "3": ("ad_copy", "Ad Copy", "summer sale campaign", "products"),
+        "4": ("email_newsletter", "Email Newsletter", "weekly tech updates", "blogs"),
+        "5": ("social_media", "Social Media Post", "new product launch", "social"),
+        "6": ("support_reply", "Support Reply", "refund for late delivery", "support")
+    }
+    
+    if type_choice not in type_map:
+        print(f"{Colors.RED}❌ Invalid choice. Using default (Support Reply){Colors.END}")
+        type_choice = "6"
+    
+    content_type, type_name, example, collection = type_map[type_choice]
+    
+    print(f"\n{Colors.YELLOW}Example topic: '{example}'\n{Colors.END}")
     
     # Get user input
-    topic = input(f"{Colors.BOLD}💭 Enter your topic/issue:{Colors.END} ").strip()
+    topic = input(f"{Colors.BOLD}💭 Enter your topic:{Colors.END} ").strip()
     
     if not topic:
         print(f"{Colors.RED}❌ No topic entered. Skipping...{Colors.END}\n")
@@ -72,8 +98,8 @@ def test_content_generation():
     tone_map = {"1": "empathetic", "2": "friendly", "3": "formal", "4": "neutral"}
     tone = tone_map.get(tone_choice, "empathetic")
     
-    print(f"\n{Colors.CYAN}🔄 Generating content...{Colors.END}")
-    print(f"{Colors.YELLOW}  → Retrieving RAG context from ChromaDB...{Colors.END}")
+    print(f"\n{Colors.CYAN}🔄 Generating {type_name}...{Colors.END}")
+    print(f"{Colors.YELLOW}  → Retrieving RAG context from '{collection}' collection...{Colors.END}")
     print(f"{Colors.YELLOW}  → Injecting context into prompt...{Colors.END}")
     print(f"{Colors.YELLOW}  → Generating with Llama 3...{Colors.END}\n")
     
@@ -82,7 +108,7 @@ def test_content_generation():
         response = requests.post(
             f"{BASE_URL}/v1/generate/content",
             json={
-                "content_type": "support_reply",
+                "content_type": content_type,
                 "topic": topic,
                 "tone": tone
             },
@@ -93,7 +119,7 @@ def test_content_generation():
             data = response.json()
             
             print(f"{Colors.GREEN}{'='*80}{Colors.END}")
-            print(f"{Colors.BOLD}{Colors.GREEN}✅ GENERATED CONTENT{Colors.END}")
+            print(f"{Colors.BOLD}{Colors.GREEN}✅ GENERATED {type_name.upper()}{Colors.END}")
             print(f"{Colors.GREEN}{'='*80}{Colors.END}\n")
             
             print(f"{Colors.BOLD}{Colors.CYAN}📌 HEADLINE:{Colors.END}")

@@ -1,0 +1,11 @@
+order_id,customer_id,customer_email,product_name,order_date,status,tracking_number,expected_delivery,actual_delivery,carrier,order_total
+ORD-10001,CUST-001,john.doe@email.com,Wireless Headphones,2025-11-01,delivered,TRK1234567890,2025-11-05,2025-11-04,FedEx,89.99
+ORD-10002,CUST-002,sarah.smith@email.com,Laptop Stand,2025-11-03,shipped,TRK2345678901,2025-11-22,,UPS,45.50
+ORD-10003,CUST-003,mike.johnson@email.com,USB-C Hub,2025-11-10,processing,,Unknown - system offline,,,35.00
+ORD-10004,CUST-004,emma.wilson@email.com,Mechanical Keyboard,2025-11-12,shipped,TRK3456789012,2025-11-23,,DHL,129.99
+ORD-10005,CUST-001,john.doe@email.com,Mouse Pad,2025-11-15,delivered,TRK4567890123,2025-11-18,2025-11-17,FedEx,12.99
+ORD-10006,CUST-005,lisa.brown@email.com,Webcam HD,2025-11-16,cancelled,,Unknown - system offline,,,79.99
+ORD-10007,CUST-006,david.lee@email.com,Monitor 27inch,2025-11-17,processing,,Unknown - system offline,,,299.99
+ORD-10008,CUST-002,sarah.smith@email.com,Desk Lamp,2025-11-18,shipped,TRK5678901234,2025-11-24,,USPS,34.99
+ORD-10009,CUST-007,alex.taylor@email.com,Phone Stand,2025-11-19,pending_payment,,Unknown - system offline,,,19.99
+ORD-10010,CUST-004,emma.wilson@email.com,Cable Organizer,2025-11-20,processing,,Unknown - system offline,,,15.99

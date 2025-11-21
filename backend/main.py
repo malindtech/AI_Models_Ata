@@ -59,10 +59,32 @@ except ImportError as e:
 # Production: Validator imports
 from backend.validators import validate_support_reply
 
+# Day 9: Feedback Learning & Performance Optimization
+try:
+    from backend.feedback_analyzer import FeedbackAnalyzer
+    from backend.cache import get_cache, get_rate_limiter, cache_intent_classification
+    from backend.prompt_manager import PromptManager
+    from backend.feedback_ranker import apply_feedback_reranking
+    DAY9_AVAILABLE = True
+    logger.info("✅ Day 9 features available: Feedback Learning & Redis Caching")
+except ImportError as e:
+    logger.warning(f"Day 9 features not available: {e}")
+    DAY9_AVAILABLE = False
+
+# Data-Grounded Support: Database and knowledge base imports
+try:
+    from backend import data_retrieval
+    from backend.data_retrieval import get_data_retrieval
+    DATA_GROUNDING_AVAILABLE = True
+    logger.info("✅ Data-grounded support available: Orders, Customers, Policies")
+except ImportError as e:
+    logger.warning(f"Data grounding not available: {e}")
+    DATA_GROUNDING_AVAILABLE = False
+
 load_dotenv()
 
 # ==== Rate Limiting Configuration ====
-# In-memory rate limiting (use Redis for production multi-server deployments)
+# Day 9: Redis-backed distributed rate limiting (fallback to in-memory if Redis unavailable)
 rate_limit_data = defaultdict(lambda: {"count": 0, "window_start": datetime.now(), "blocked_until": None})
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "100"))  # requests per window
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "3600"))  # 1 hour default
@@ -231,6 +253,7 @@ def trim_messages_to_fit_token_limit(messages: List[dict], max_tokens: int = 300
 def check_rate_limit(identifier: str) -> tuple[bool, dict]:
     """
     Check if request is within rate limit
+    Day 9: Uses Redis-backed rate limiting when available, falls back to in-memory
     
     Args:
         identifier: Unique identifier (IP address, user ID, session ID, etc.)
@@ -241,6 +264,21 @@ def check_rate_limit(identifier: str) -> tuple[bool, dict]:
             - retry_after: seconds until can retry (if blocked)
             - reset_at: timestamp when window resets
     """
+    # Day 9: Try Redis-backed rate limiting first
+    if DAY9_AVAILABLE:
+        try:
+            limiter = get_rate_limiter()
+            return limiter.check_limit(
+                identifier,
+                RATE_LIMIT_MAX_REQUESTS,
+                RATE_LIMIT_WINDOW_SECONDS,
+                RATE_LIMIT_BLOCK_DURATION
+            )
+        except Exception as e:
+            logger.warning(f"Redis rate limiter failed, using in-memory fallback: {e}")
+            # Fall through to in-memory implementation
+    
+    # Fallback: In-memory rate limiting
     now = datetime.now()
     data = rate_limit_data[identifier]
     
@@ -426,7 +464,7 @@ if MODEL_NAME in ["llama3.2:1b", "llama2:1b"]:
 # Day 5: Startup event to initialize vector database
 @app.on_event("startup")
 async def startup_event():
-    """Initialize ChromaDB on startup with graceful degradation"""
+    """Initialize ChromaDB and data grounding on startup with graceful degradation"""
     global CHROMA_CLIENT
     if VECTOR_DB_AVAILABLE:
         try:
@@ -438,6 +476,14 @@ async def startup_event():
             CHROMA_CLIENT = None
     else:
         logger.warning("Vector DB module not available - RAG features disabled")
+    
+    # Initialize data grounding modules
+    try:
+        data_retrieval.initialize()
+        logger.info("✅ Data grounding initialized successfully")
+    except Exception as e:
+        logger.error(f"⚠️ Data grounding initialization failed: {e}")
+        logger.warning("Support agent will work without database grounding")
     
     # Production: Start background cleanup task
     import asyncio
@@ -513,9 +559,20 @@ def get_statistics():
         "system": {
             "vector_db_available": CHROMA_CLIENT is not None,
             "celery_available": CELERY_AVAILABLE,
-            "day6_features_available": DAY6_AVAILABLE
+            "day6_features_available": DAY6_AVAILABLE,
+            "day9_features_available": DAY9_AVAILABLE
         }
     }
+    
+    # Day 9: Add cache statistics if available
+    if DAY9_AVAILABLE:
+        try:
+            cache = get_cache()
+            result["cache_stats"] = cache.get_stats()
+        except Exception as e:
+            logger.warning(f"Could not get cache stats: {e}")
+    
+    return result
 
 @app.get("/test")
 def test_llama():
@@ -525,6 +582,218 @@ def test_llama():
         return {"prompt": prompt, "reply": r["response"], "latency_s": r["latency_s"]}
     except OllamaError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==== Day 9: Feedback Collection & Analysis API ====
+
+class ContentFeedbackSubmission(BaseModel):
+    """Feedback submission for content generation"""
+    session_id: str = Field(..., description="Unique session ID")
+    content_type: str = Field(..., description="Type of content (blog, product, etc.)")
+    topic: str = Field(..., description="Content topic")
+    tone: str = Field("neutral", description="Content tone")
+    generated_headline: str = Field(..., description="Generated headline")
+    generated_body: str = Field(..., description="Generated body")
+    decision: Literal['approved', 'rejected', 'edited'] = Field(..., description="Review decision")
+    edited_headline: Optional[str] = Field(None, description="Edited headline if modified")
+    edited_body: Optional[str] = Field(None, description="Edited body if modified")
+    reviewer_notes: Optional[str] = Field(None, description="Reviewer comments")
+    validation_issues: Optional[List[str]] = Field(None, description="Validation issues found")
+    latency_s: float = Field(0.0, description="Generation latency")
+
+class SupportFeedbackSubmission(BaseModel):
+    """Feedback submission for support replies"""
+    session_id: str = Field(..., description="Unique session ID")
+    message: str = Field(..., description="Customer message")
+    intent: str = Field(..., description="Detected intent")
+    reply: str = Field(..., description="Generated reply")
+    is_valid: bool = Field(..., description="Whether reply passed validation")
+    quality_score: float = Field(..., ge=0.0, le=1.0, description="Quality score (0-1)")
+    issues: Optional[List[str]] = Field(None, description="Validation issues")
+    latency_s: float = Field(0.0, description="Generation latency")
+
+@app.post("/v1/feedback/content")
+def submit_content_feedback(feedback: ContentFeedbackSubmission = Body(...)):
+    """
+    Day 9: Submit programmatic feedback for content generation
+    Alternative to Streamlit UI for automated feedback collection
+    """
+    if not DAY9_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Day 9 feedback system not available")
+    
+    try:
+        import pandas as pd
+        from pathlib import Path
+        
+        # Prepare feedback entry
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": feedback.session_id,
+            "content_type": feedback.content_type,
+            "topic": feedback.topic,
+            "tone": feedback.tone,
+            "generated_headline": feedback.generated_headline,
+            "generated_body": feedback.generated_body,
+            "decision": feedback.decision,
+            "edited_headline": feedback.edited_headline or "",
+            "edited_body": feedback.edited_body or "",
+            "reviewer_notes": feedback.reviewer_notes or "",
+            "validation_issues": json.dumps(feedback.validation_issues) if feedback.validation_issues else "",
+            "latency_s": feedback.latency_s
+        }
+        
+        # Append to feedback file
+        feedback_file = Path("data/human_feedback.csv")
+        feedback_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        df = pd.DataFrame([entry])
+        
+        if feedback_file.exists():
+            df.to_csv(feedback_file, mode='a', header=False, index=False)
+        else:
+            df.to_csv(feedback_file, index=False)
+        
+        logger.info(f"✅ Content feedback recorded: {feedback.decision} for {feedback.content_type}")
+        
+        return {
+            "status": "recorded",
+            "session_id": feedback.session_id,
+            "decision": feedback.decision,
+            "timestamp": entry["timestamp"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error recording content feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to record feedback: {str(e)}")
+
+@app.post("/v1/feedback/support")
+def submit_support_feedback(feedback: SupportFeedbackSubmission = Body(...)):
+    """
+    Day 9: Submit programmatic feedback for support replies
+    Records validation results and quality scores for learning
+    """
+    if not DAY9_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Day 9 feedback system not available")
+    
+    try:
+        import pandas as pd
+        from pathlib import Path
+        
+        # Prepare feedback entry
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": feedback.session_id,
+            "message": feedback.message,
+            "intent": feedback.intent,
+            "reply": feedback.reply,
+            "is_valid": feedback.is_valid,
+            "quality_score": feedback.quality_score,
+            "issues": json.dumps(feedback.issues) if feedback.issues else "",
+            "latency_s": feedback.latency_s
+        }
+        
+        # Append to support feedback file
+        feedback_file = Path("data/support_feedback.csv")
+        feedback_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        df = pd.DataFrame([entry])
+        
+        if feedback_file.exists():
+            df.to_csv(feedback_file, mode='a', header=False, index=False)
+        else:
+            df.to_csv(feedback_file, index=False)
+        
+        logger.info(f"✅ Support feedback recorded: valid={feedback.is_valid}, score={feedback.quality_score:.2f}")
+        
+        return {
+            "status": "recorded",
+            "session_id": feedback.session_id,
+            "is_valid": feedback.is_valid,
+            "quality_score": feedback.quality_score,
+            "timestamp": entry["timestamp"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error recording support feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to record feedback: {str(e)}")
+
+@app.get("/v1/feedback/stats")
+def get_feedback_statistics():
+    """
+    Day 9: Get aggregated feedback statistics for both agents
+    """
+    if not DAY9_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Day 9 feedback system not available")
+    
+    try:
+        analyzer = FeedbackAnalyzer()
+        
+        # Load feedback data
+        content_df = analyzer.load_content_feedback()
+        support_df = analyzer.load_support_feedback()
+        
+        # Calculate metrics
+        content_metrics = analyzer.calculate_content_metrics(content_df)
+        support_metrics = analyzer.calculate_support_metrics(support_df)
+        
+        return {
+            "content_generation": content_metrics,
+            "customer_support": support_metrics,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting feedback stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+@app.get("/v1/feedback/analysis")
+def get_feedback_analysis():
+    """
+    Day 9: Get comprehensive feedback analysis with improvement suggestions
+    """
+    if not DAY9_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Day 9 feedback system not available")
+    
+    try:
+        analyzer = FeedbackAnalyzer()
+        report = analyzer.generate_full_report()
+        
+        # Save report to logs
+        analyzer.save_report(report)
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"Error generating feedback analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate analysis: {str(e)}")
+
+@app.post("/v1/cache/clear")
+def clear_cache(pattern: Optional[str] = None):
+    """
+    Day 9: Clear Redis cache (admin endpoint)
+    
+    Args:
+        pattern: Optional Redis key pattern to clear (e.g., "rag:*")
+    """
+    if not DAY9_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Day 9 cache system not available")
+    
+    try:
+        cache = get_cache()
+        
+        if pattern:
+            deleted = cache.delete_pattern(pattern)
+            logger.info(f"🗑️ Cleared cache pattern '{pattern}': {deleted} keys deleted")
+            return {"status": "cleared", "pattern": pattern, "keys_deleted": deleted}
+        else:
+            cache.clear_all()
+            logger.warning("🗑️ Cleared entire cache database")
+            return {"status": "cleared", "scope": "all"}
+        
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
+
+# ==== End Day 9 Feedback API ====
 
 # ==== Content Generation Models & Endpoint ====
 
@@ -545,6 +814,10 @@ class GenerateContentResponse(BaseModel):
     headline: str
     body: str
     latency_s: float
+    # Day 8: Quality assurance fields
+    confidence_score: float = Field(default=1.0, ge=0.0, le=1.0, description="Quality confidence score (0-1, higher is better)")
+    hallucination_risk: str = Field(default="low", description="Hallucination risk level: low/medium/high")
+    quality_metrics: dict = Field(default_factory=dict, description="Detailed quality metrics")
 
 PROMPTS_DIR = Path("prompts")
 
@@ -832,13 +1105,116 @@ def generate_content(req: GenerateContentRequest = Body(...)):
     logger.debug(f"Final validated body length: {len(body)}")
     logger.info(f"Final output: headline='{headline[:50]}...', body_len={len(body)}")
     
+    # Day 8: Calculate confidence score and detect hallucinations
+    from backend.rag_utils import detect_hallucination
+    
+    hallucination_check = detect_hallucination(body, results) if results else {
+        "has_hallucination_risk": True,
+        "support_score": 0.0,
+        "unsupported_claims": ["No RAG context available"],
+        "total_sentences": 0,
+        "supported_sentences": 0
+    }
+    
+    # Calculate confidence score based on multiple factors
+    confidence = calculate_confidence_score(
+        body_length=len(body),
+        headline_quality=1.0 if len(headline) > 20 else 0.8,
+        hallucination_support=hallucination_check['support_score'],
+        rag_available=bool(results)
+    )
+    
+    # Determine hallucination risk level
+    if hallucination_check['has_hallucination_risk'] or hallucination_check['support_score'] < 0.5:
+        risk_level = "high"
+    elif hallucination_check['support_score'] < 0.7:
+        risk_level = "medium"
+    else:
+        risk_level = "low"
+    
+    logger.info(f"Day 8 QA: confidence={confidence:.2f}, hallucination_risk={risk_level}, support_score={hallucination_check['support_score']:.2f}")
+    
     return GenerateContentResponse(
         content_type=req.content_type,
         topic=req.topic,
         headline=headline.strip(),
         body=body.strip(),
         latency_s=r["latency_s"],
+        confidence_score=confidence,
+        hallucination_risk=risk_level,
+        quality_metrics={
+            "body_length": len(body),
+            "headline_length": len(headline),
+            "hallucination_support_score": hallucination_check['support_score'],
+            "supported_sentences": hallucination_check['supported_sentences'],
+            "total_sentences": hallucination_check['total_sentences'],
+            "unsupported_claims_sample": hallucination_check.get('unsupported_claims', [])[:2],
+            "rag_documents_used": len(results) if results else 0
+        }
     )
+
+
+def calculate_confidence_score(
+    body_length: int,
+    headline_quality: float,
+    hallucination_support: float,
+    rag_available: bool
+) -> float:
+    """
+    Day 8: Calculate overall confidence score for generated content
+    
+    Uses weighted average instead of multiplicative penalties for better balance.
+    
+    Weights:
+    - Hallucination support: 60% (most critical)
+    - Content length: 20%
+    - Headline quality: 10%
+    - RAG availability: 10%
+    
+    Args:
+        body_length: Length of generated body text
+        headline_quality: Quality score for headline (0-1)
+        hallucination_support: Support score from hallucination detector (0-1)
+        rag_available: Whether RAG context was used
+        
+    Returns:
+        Confidence score (0-1, higher is better)
+    """
+    # Weights (total = 1.0)
+    SUPPORT_WEIGHT = 0.60      # Most important - content grounding
+    LENGTH_WEIGHT = 0.20       # Adequate content length
+    HEADLINE_WEIGHT = 0.10     # Minor factor
+    RAG_WEIGHT = 0.10          # Bonus for RAG use
+    
+    # Support score (0-1, already calculated)
+    support_score = hallucination_support
+    
+    # Length score (0-1)
+    if body_length >= 400:
+        length_score = 1.0
+    elif body_length >= 250:
+        length_score = 0.8
+    elif body_length >= 150:
+        length_score = 0.6
+    else:
+        length_score = 0.4
+    
+    # Headline score (0-1)
+    headline_score = headline_quality
+    
+    # RAG score (0-1)
+    rag_score = 1.0 if rag_available else 0.3
+    
+    # Weighted average
+    confidence = (
+        support_score * SUPPORT_WEIGHT +
+        length_score * LENGTH_WEIGHT +
+        headline_score * HEADLINE_WEIGHT +
+        rag_score * RAG_WEIGHT
+    )
+    
+    # Ensure score stays in valid range
+    return max(0.0, min(1.0, confidence))
 
 # ==== Day 5: RAG Retrieval Endpoint ====
 
@@ -921,6 +1297,10 @@ def retrieve_documents(req: RetrieveRequest = Body(...)):
             # Standard retrieval (Day 5 behavior)
             results = retrieve_similar(req.collection, req.query, k=req.top_k, client=CHROMA_CLIENT)
             
+            # Day 9: Apply feedback-based re-ranking
+            if DAY9_AVAILABLE:
+                results = apply_feedback_reranking(results, req.query)
+            
             # Format results
             documents = []
             for result in results:
@@ -928,7 +1308,7 @@ def retrieve_documents(req: RetrieveRequest = Body(...)):
                     id=result['id'],
                     text=result['text'],
                     metadata=result.get('metadata', {}),
-                    distance=result['distance'],
+                    distance=result.get('final_score', result['distance']),
                     collection=req.collection
                 ))
         else:
@@ -1013,11 +1393,26 @@ class TaskStatusResponse(BaseModel):
     error: Optional[str] = Field(None, description="Error message if task failed")
     progress: Optional[dict] = Field(None, description="Progress information if available")
 
-def classify_intent(message: str) -> dict:
-    """
-    Classify customer message intent using few-shot prompting
-    Returns: {"intent": str, "latency_s": float}
-    """
+# Day 9: Apply caching decorator to intent classification
+if DAY9_AVAILABLE:
+    @cache_intent_classification(ttl=1800)  # 30 minute cache
+    def classify_intent(message: str) -> dict:
+        """
+        Classify customer message intent using few-shot prompting
+        Day 9: Results cached in Redis for 30 minutes
+        Returns: {"intent": str, "latency_s": float}
+        """
+        return _classify_intent_impl(message)
+else:
+    def classify_intent(message: str) -> dict:
+        """
+        Classify customer message intent using few-shot prompting
+        Returns: {"intent": str, "latency_s": float}
+        """
+        return _classify_intent_impl(message)
+
+def _classify_intent_impl(message: str) -> dict:
+    """Internal implementation of intent classification"""
     # Load intent classifier template
     template_path = PROMPTS_DIR / "intent_classifier.yaml"
     if not template_path.exists():
@@ -1110,7 +1505,7 @@ def generate_reply_from_intent(message: str, intent: str, conversation_history: 
        (len(message_lower) < 20 and any(g in message_lower for g in ['hi', 'hello', 'hey']) and 
         not any(word in message_lower for word in ['order', 'package', 'delivery', 'return', 'refund', 'help', 'issue', 'problem']))):
         return {
-            "reply": "Hello! I'm here to help you with any questions or concerns about your order. How can I assist you today?",
+            "reply": "Hello! I'm here to help you with any questions or concerns. How can I assist you today?",
             "next_steps": "Please let me know what you need help with",
             "latency_s": 0.0
         }
@@ -1166,6 +1561,32 @@ def generate_reply_from_intent(message: str, intent: str, conversation_history: 
     has_order_number = 'order_number' in all_info
     has_email = 'email' in all_info
     
+    # DATA GROUNDING: Retrieve actual order/customer data and policies from database
+    database_context = ""
+    grounded_context = None
+    
+    if DATA_GROUNDING_AVAILABLE:
+        try:
+            data_retrieval = get_data_retrieval()
+            grounded_context = data_retrieval.get_grounded_context(
+                message=message,
+                extracted_info=all_info,
+                intent=intent,
+                conversation_history=cleaned_history
+            )
+            
+            if grounded_context and grounded_context.get('has_data'):
+                database_context = grounded_context['context_text']
+                logger.info(f"✅ Retrieved grounded context: {grounded_context.get('data_sources', [])}")
+            else:
+                database_context = grounded_context['context_text'] if grounded_context else "No data found in database for provided identifiers."
+                logger.warning("⚠️ No grounded data found")
+        except Exception as e:
+            logger.error(f"Data retrieval failed: {e}")
+            database_context = "Database temporarily unavailable. Ask customer to provide order details."
+    else:
+        database_context = "Database system not connected. Please ask customer for order number and email to look up manually."
+    
     # Build enhanced prompt
     if cleaned_history and len(cleaned_history) > 0:
         # Format conversation history (use cleaned history)
@@ -1185,99 +1606,28 @@ def generate_reply_from_intent(message: str, intent: str, conversation_history: 
         
         context_text = "\n".join(context_summary) if context_summary else "No key information extracted yet"
         
-        # Multi-turn context-aware prompt with explicit conversation context
-        prompt = f"""{system}
-
-CONVERSATION CONTEXT:
-You are continuing an ongoing conversation. The customer has already interacted with you before.
-- Review the full conversation history below to understand what has been discussed
-- Maintain consistency with previous responses
-- DO NOT repeat information or questions already covered
-- Reference specific prior exchanges when relevant (e.g., "As you mentioned earlier...")
+        # Multi-turn context-aware prompt with database-grounded context
+        prompt = pattern.replace("{message}", message).replace("{intent}", intent).replace("{database_context}", database_context).replace("{intent_example}", example)
+        
+        # Add conversation history context
+        history_section = f"""
 
 CONVERSATION HISTORY (last {len(cleaned_history)} turns):
 {history_text}
 
-CURRENT MESSAGE:
-Customer: {message}
-
-DETECTED INTENT: {intent}
-
-EXTRACTED INFORMATION:
-{context_text}
-
-INTENT GUIDELINES FOR {intent.upper()}:
-{example}
-
-CRITICAL INSTRUCTIONS:
-1. ANALYZE what information you have:
-   - If you have order number: Use it! Say "I've located order [NUMBER]" then take action
-   - If missing and needed: Ask for it clearly
-   
-2. RESPOND appropriately to the customer's actual message:
-   - If they provided info: Acknowledge it and take next step
-   - If they asked a question: Answer it directly
-   - If they have a problem: Show empathy and solve it
-   
-3. BE NATURAL - Don't sound robotic:
-   - ✓ "Thanks for providing your order number. Let me check that for you now..."
-   - ✓ "I see you're asking about [topic]. Here's what I can help with..."
-   - ✗ "As per the protocol, I will now proceed to..."
-   
-4. NEVER:
-   - Repeat information customer already provided
-   - Ask questions already answered
-   - Make up details not mentioned (timeframes, reasons, etc.)
-   - Say "as discussed" without referencing specific info
-   
-5. ALWAYS:
-   - Address what customer actually said
-   - Provide specific, actionable next steps
-   - Give realistic timeframes when promising action
-
-Return ONLY valid JSON: {{"reply": "your natural, helpful response", "next_steps": "what happens next"}}
-""".strip()
+NOTE: This is a multi-turn conversation. Review the history above and maintain consistency.
+DO NOT repeat information or questions already covered.
+"""
+        # Insert history section after the system instructions
+        prompt = prompt.replace("=== AVAILABLE DATA FROM DATABASE ===", 
+                               f"CONVERSATION HISTORY:\n{history_section}\n\n=== AVAILABLE DATA FROM DATABASE ===")
         
-        logger.info(f"Multi-turn mode: {len(cleaned_history)} turns, extracted_info={list(all_info.keys())}")
+        logger.info(f"Multi-turn mode: {len(cleaned_history)} turns, has_grounded_data={bool(grounded_context and grounded_context.get('has_data'))}")
     else:
-        # Single-turn prompt - first interaction
-        context_text = []
-        if has_order_number:
-            context_text.append(f"Order Number: {all_info['order_number']}")
-        if has_email:
-            context_text.append(f"Email: {all_info['email']}")
+        # Single-turn prompt - first interaction with database-grounded context
+        prompt = pattern.replace("{message}", message).replace("{intent}", intent).replace("{database_context}", database_context).replace("{intent_example}", example)
         
-        info_status = "\n".join(context_text) if context_text else "No order/account info provided yet"
-        
-        prompt = f"""{system}
-
-CUSTOMER MESSAGE:
-{message}
-
-DETECTED INTENT: {intent}
-
-EXTRACTED INFORMATION:
-{info_status}
-
-INTENT GUIDELINES:
-{example}
-
-INSTRUCTIONS:
-1. READ the customer's message carefully and respond to what they actually said
-2. If they provided order number/email: Acknowledge it and take action
-3. If missing and you need it: Ask for it politely and explain why
-4. Be conversational and natural - you're a human support agent, not a robot
-5. Provide specific next steps with realistic timeframes
-
-Examples of GOOD responses:
-- Customer: "Package hasn't arrived" → You: "I'm sorry to hear that! To track it down, could you provide your order number?"
-- Customer: "My order ABC-123 is late" → You: "Thanks for providing order ABC-123. Let me check the shipping status right now and I'll have an update for you within 30 minutes."
-- Customer: "Can I return this?" → You: "Absolutely! I can help with that. To process your return, I'll need your order number. Once I have that, I'll email you a prepaid return label within 15 minutes."
-
-Return ONLY valid JSON: {{"reply": "your natural response", "next_steps": "what to do next"}}
-""".strip()
-        
-        logger.debug(f"Single-turn mode, extracted_info={list(all_info.keys())}")
+        logger.debug(f"Single-turn mode, has_grounded_data={bool(grounded_context and grounded_context.get('has_data'))}")
     
     # Production: Dynamic token management
     num_turns = len(cleaned_history) if cleaned_history else 0
@@ -1354,6 +1704,22 @@ Return ONLY valid JSON: {{"reply": "your natural response", "next_steps": "what 
             logger.debug("Reply already asks for order info")
     elif has_order_number:
         logger.debug(f"Order number already provided: {all_info.get('order_number')} - no fallback needed")
+    
+    # DATA GROUNDING: Validate response against retrieved data to detect hallucinations
+    if DATA_GROUNDING_AVAILABLE and grounded_context:
+        try:
+            data_retrieval = get_data_retrieval()
+            validation_result = data_retrieval.validate_response_against_data(reply, grounded_context)
+            
+            if not validation_result['is_valid']:
+                logger.error(f"❌ HALLUCINATION DETECTED: {validation_result['errors']}")
+                # Log the hallucination but still return the response (logged for review)
+                # In production, you might want to regenerate or use a safer fallback
+            
+            if validation_result['warnings']:
+                logger.warning(f"⚠️ Response quality warnings: {validation_result['warnings']}")
+        except Exception as e:
+            logger.error(f"Hallucination validation failed: {e}")
     
     logger.info(f"Reply generated for intent={intent}, has_order={has_order_number}: {reply[:80]}...")
     return {"reply": reply, "next_steps": next_steps, "latency_s": llm_latency}

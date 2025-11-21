@@ -1,0 +1,147 @@
+{
+  "timestamp": "2025-11-19T10:39:39.265594",
+  "baseline_timestamp": "2025-11-19T10:35:37.408701",
+  "day6_available": true,
+  "query_expansion_tests": [
+    {
+      "baseline_results": 5,
+      "expanded_results": 5,
+      "recall_improvement": 1.0,
+      "latency_baseline_ms": 36524.66,
+      "latency_expanded_ms": 22.63,
+      "latency_increase_ms": -36502.03,
+      "avg_distance_baseline": 1.6868,
+      "avg_distance_expanded": 1.6868,
+      "relevance_maintained": true,
+      "collection": "blogs",
+      "query": "customer engagement strategies"
+    },
+    {
+      "baseline_results": 5,
+      "expanded_results": 10,
+      "recall_improvement": 2.0,
+      "latency_baseline_ms": 14.87,
+      "latency_expanded_ms": 54.09,
+      "latency_increase_ms": 39.21,
+      "avg_distance_baseline": 1.6472,
+      "avg_distance_expanded": 1.6463,
+      "relevance_maintained": true,
+      "collection": "blogs",
+      "query": "digital marketing best practices"
+    },
+    {
+      "baseline_results": 5,
+      "expanded_results": 5,
+      "recall_improvement": 1.0,
+      "latency_baseline_ms": 74.14,
+      "latency_expanded_ms": 19.35,
+      "latency_increase_ms": -54.79,
+      "avg_distance_baseline": 1.1197,
+      "avg_distance_expanded": 1.1197,
+      "relevance_maintained": true,
+      "collection": "products",
+      "query": "comfortable running shoes"
+    },
+    {
+      "baseline_results": 5,
+      "expanded_results": 5,
+      "recall_improvement": 1.0,
+      "latency_baseline_ms": 13.92,
+      "latency_expanded_ms": 19.6,
+      "latency_increase_ms": 5.68,
+      "avg_distance_baseline": 1.6381,
+      "avg_distance_expanded": 1.6381,
+      "relevance_maintained": true,
+      "collection": "products",
+      "query": "wireless headphones"
+    },
+    {
+      "baseline_results": 5,
+      "expanded_results": 9,
+      "recall_improvement": 1.8,
+      "latency_baseline_ms": 75.71,
+      "latency_expanded_ms": 47.12,
+      "latency_increase_ms": -28.59,
+      "avg_distance_baseline": 1.2286,
+      "avg_distance_expanded": 1.2056,
+      "relevance_maintained": true,
+      "collection": "support",
+      "query": "return damaged product"
+    },
+    {
+      "baseline_results": 5,
+      "expanded_results": 9,
+      "recall_improvement": 1.8,
+      "latency_baseline_ms": 15.51,
+      "latency_expanded_ms": 50.07,
+      "latency_increase_ms": 34.56,
+      "avg_distance_baseline": 0.7961,
+      "avg_distance_expanded": 0.8936,
+      "relevance_maintained": false,
+      "collection": "support",
+      "query": "track my order"
+    }
+  ],
+  "personalization_tests": {
+    "test_cases": 2,
+    "avg_accuracy": 1.0,
+    "all_tests_passed": true,
+    "details": [
+      {
+        "original": "Dear {customer_name}, your order {order_number} has shipped.",
+        "personalized": "Dear John Smith, your order ORD-12345 has shipped.",
+        "tokens_before": 2,
+        "tokens_after": 0,
+        "tokens_replaced": 2,
+        "expected_tokens": 2,
+        "accuracy": 1.0
+      },
+      {
+        "original": "Welcome to {company}! Contact us at {email}.",
+        "personalized": "Welcome to Acme Corp! Contact us at support@acme.com.",
+        "tokens_before": 2,
+        "tokens_after": 0,
+        "tokens_replaced": 2,
+        "expected_tokens": 2,
+        "accuracy": 1.0
+      }
+    ]
+  },
+  "hybrid_retrieval_tests": [
+    {
+      "latency_standard_ms": 15.89,
+      "latency_hybrid_ms": 23.6,
+      "avg_distance_standard": 1.6868,
+      "avg_distance_hybrid": 1.6907,
+      "relevance_improved": false,
+      "collection": "blogs",
+      "query": "customer engagement strategies"
+    },
+    {
+      "latency_standard_ms": 15.1,
+      "latency_hybrid_ms": 23.19,
+      "avg_distance_standard": 1.1197,
+      "avg_distance_hybrid": 1.137,
+      "relevance_improved": false,
+      "collection": "products",
+      "query": "comfortable running shoes"
+    }
+  ],
+  "summary": {
+    "query_expansion": {
+      "avg_recall_improvement": 1.43,
+      "avg_latency_increase_ms": -6084.33,
+      "meets_threshold": true
+    },
+    "personalization": {
+      "accuracy": 1.0,
+      "meets_threshold": true
+    },
+    "hybrid_retrieval": {
+      "tests_run": 2,
+      "improved_count": 0,
+      "improvement_rate": 0.0
+    },
+    "overall_pass": true
+  }
+}

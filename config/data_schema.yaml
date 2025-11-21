@@ -1,0 +1,166 @@
+# Data Schema Configuration
+# Maps CSV columns to standardized internal field names
+# Supports multiple column name variations for flexibility
+
+# Order data mappings
+orders:
+  file: "data/company/orders.csv"
+  primary_key: "order_id"
+  columns:
+    order_id:
+      aliases: ["order_id", "OrderID", "order_number", "OrderNumber"]
+      type: "string"
+    customer_email:
+      aliases: ["customer_email", "email", "CustomerEmail", "customer_mail"]
+      type: "string"
+    product_name:
+      aliases: ["product_name", "ProductName", "product", "item_name"]
+      type: "string"
+    order_date:
+      aliases: ["order_date", "OrderDate", "created_date", "purchase_date"]
+      type: "date"
+      format: "%Y-%m-%d"
+    status:
+      aliases: ["status", "Status", "order_status", "OrderStatus"]
+      type: "string"
+      valid_values: ["pending_payment", "processing", "shipped", "delivered", "cancelled", "refunded"]
+    tracking_number:
+      aliases: ["tracking_number", "TrackingNumber", "tracking", "track_no"]
+      type: "string"
+    expected_delivery:
+      aliases: ["expected_delivery", "ExpectedDelivery", "estimated_delivery", "delivery_date"]
+      type: "date"
+      format: "%Y-%m-%d"
+    actual_delivery:
+      aliases: ["actual_delivery", "ActualDelivery", "delivered_date"]
+      type: "date"
+      format: "%Y-%m-%d"
+    carrier:
+      aliases: ["carrier", "Carrier", "shipping_carrier", "shipper"]
+      type: "string"
+    order_total:
+      aliases: ["order_total", "OrderTotal", "total", "amount"]
+      type: "float"
+
+# Customer data mappings
+customers:
+  file: "data/company/customers.csv"
+  primary_key: "customer_id"
+  columns:
+    customer_id:
+      aliases: ["customer_id", "CustomerID", "cust_id"]
+      type: "string"
+    name:
+      aliases: ["name", "Name", "customer_name", "CustomerName", "full_name"]
+      type: "string"
+    email:
+      aliases: ["email", "Email", "customer_email", "CustomerEmail"]
+      type: "string"
+    phone:
+      aliases: ["phone", "Phone", "phone_number", "PhoneNumber"]
+      type: "string"
+    join_date:
+      aliases: ["join_date", "JoinDate", "signup_date", "registration_date"]
+      type: "date"
+      format: "%Y-%m-%d"
+    loyalty_tier:
+      aliases: ["loyalty_tier", "LoyaltyTier", "tier", "membership"]
+      type: "string"
+      valid_values: ["bronze", "silver", "gold", "platinum"]
+    total_orders:
+      aliases: ["total_orders", "TotalOrders", "order_count"]
+      type: "integer"
+    total_spent:
+      aliases: ["total_spent", "TotalSpent", "lifetime_value"]
+      type: "float"
+
+# Product data mappings
+products:
+  file: "data/company/products.csv"
+  primary_key: "product_id"
+  columns:
+    product_id:
+      aliases: ["product_id", "ProductID", "prod_id", "sku"]
+      type: "string"
+    name:
+      aliases: ["name", "Name", "product_name", "ProductName"]
+      type: "string"
+    category:
+      aliases: ["category", "Category", "product_category"]
+      type: "string"
+    price:
+      aliases: ["price", "Price", "unit_price", "cost"]
+      type: "float"
+    warranty_months:
+      aliases: ["warranty_months", "WarrantyMonths", "warranty", "warranty_period"]
+      type: "integer"
+    return_eligible:
+      aliases: ["return_eligible", "ReturnEligible", "returnable", "can_return"]
+      type: "boolean"
+      true_values: ["yes", "true", "1", "Y"]
+      false_values: ["no", "false", "0", "N"]
+    stock_status:
+      aliases: ["stock_status", "StockStatus", "availability", "in_stock"]
+      type: "string"
+      valid_values: ["in_stock", "out_of_stock", "backorder", "discontinued"]
+
+# Policy data mappings
+policies:
+  file: "data/company/policies.csv"
+  primary_key: "policy_id"
+  columns:
+    policy_id:
+      aliases: ["policy_id", "PolicyID", "id"]
+      type: "string"
+    policy_type:
+      aliases: ["policy_type", "PolicyType", "type", "category"]
+      type: "string"
+    title:
+      aliases: ["title", "Title", "policy_title", "name"]
+      type: "string"
+    content:
+      aliases: ["content", "Content", "policy_content", "description", "text"]
+      type: "string"
+
+# Support history data mappings
+support_history:
+  file: "data/company/support_history.csv"
+  primary_key: "ticket_id"
+  columns:
+    ticket_id:
+      aliases: ["ticket_id", "TicketID", "ticket_number", "case_id"]
+      type: "string"
+    customer_id:
+      aliases: ["customer_id", "CustomerID", "cust_id"]
+      type: "string"
+    customer_email:
+      aliases: ["customer_email", "email", "CustomerEmail"]
+      type: "string"
+    message:
+      aliases: ["message", "Message", "customer_message", "inquiry"]
+      type: "string"
+    agent_reply:
+      aliases: ["agent_reply", "AgentReply", "reply", "response"]
+      type: "string"
+    timestamp:
+      aliases: ["timestamp", "Timestamp", "created_date", "date"]
+      type: "datetime"
+      format: "%Y-%m-%d %H:%M:%S"
+    resolved:
+      aliases: ["resolved", "Resolved", "status", "closed"]
+      type: "boolean"
+      true_values: ["yes", "true", "1", "Y", "closed", "resolved"]
+      false_values: ["no", "false", "0", "N", "open", "pending"]
+
+# Search configuration
+fuzzy_matching:
+  enabled: true
+  threshold: 80  # Minimum similarity score (0-100)
+  fields: ["order_id", "tracking_number"]  # Fields to apply fuzzy matching
+
+# Privacy/Security settings
+privacy:
+  mask_phone: true  # Show only last 4 digits
+  mask_email: false  # Show full email
+  mask_card: true  # Show only last 4 digits (if present)
+  log_data_access: true  # Log all database queries for audit

@@ -1,0 +1,11 @@
+product_id,name,category,price,warranty_months,return_eligible,stock_status
+PROD-001,Wireless Headphones,Audio,89.99,12,yes,in_stock
+PROD-002,Laptop Stand,Accessories,45.50,6,yes,in_stock
+PROD-003,USB-C Hub,Accessories,35.00,12,yes,in_stock
+PROD-004,Mechanical Keyboard,Input Devices,129.99,24,yes,in_stock
+PROD-005,Mouse Pad,Accessories,12.99,0,yes,in_stock
+PROD-006,Webcam HD,Video,79.99,12,yes,out_of_stock
+PROD-007,Monitor 27inch,Displays,299.99,36,yes,in_stock
+PROD-008,Desk Lamp,Lighting,34.99,12,yes,in_stock
+PROD-009,Phone Stand,Accessories,19.99,0,yes,in_stock
+PROD-010,Cable Organizer,Accessories,15.99,0,yes,in_stock
